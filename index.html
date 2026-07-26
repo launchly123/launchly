@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0A0A0B" />
+
+    <title>Launchly — websites that work.</title>
+    <meta
+      name="description"
+      content="Custom-built websites for local businesses. One flat price, no monthly fee, no templates."
+    />
+
+    <!-- The headline is the LCP element, so the font it renders in is on the
+         critical path. Preloading it removes a round trip. -->
+    <link
+      rel="preload"
+      href="/fonts/inter-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="canonical" href="https://launchly.vercel.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Launchly" />
+    <meta property="og:title" content="Launchly — websites that work." />
+    <meta
+      property="og:description"
+      content="Custom-built websites for local businesses. One flat price, no monthly fee, no templates."
+    />
+    <meta property="og:url" content="https://launchly.vercel.app/" />
+    <meta property="og:image" content="https://launchly.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Launchly — websites that work." />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="es_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Launchly — websites that work." />
+    <meta
+      name="twitter:description"
+      content="Custom-built websites for local businesses. One flat price, no monthly fee, no templates."
+    />
+    <meta name="twitter:image" content="https://launchly.vercel.app/og.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

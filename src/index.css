@@ -1,0 +1,930 @@
+@import 'tailwindcss';
+
+/* ───────────────────────────────────────────────────────────────────────────
+   `desk:` — the variant for layout that only exists when the scroll
+   choreography is running.
+
+   Not `lg:`. §8 reserves pinned-and-scrubbed sections for desktop and rules
+   them out for touch from 768 to 1024 — and an iPad in landscape is *exactly*
+   1024px, so a width-only breakpoint hands a tablet the desktop treatment.
+   Width tells you about the canvas, not about the finger.
+
+   Use `lg:` for type and grid — an iPad landscape should still get big type.
+   Use `desk:` only for the sticky panels, pins, and anything whose visibility
+   depends on a tween existing to reveal it.
+
+   KEEP IN SYNC with `DESKTOP_MOTION` in `src/lib/device.ts`, which gates the
+   matching `gsap.matchMedia()` blocks. If the two disagree you get sticky panels
+   with nothing animating them apart.
+   ─────────────────────────────────────────────────────────────────────────── */
+@custom-variant desk (@media (min-width: 1024px) and (hover: hover) and (pointer: fine));
+
+/* ───────────────────────────────────────────────────────────────────────────
+   FONT — Inter Variable, latin subset only, self-hosted.
+   Vendored from @fontsource-variable/inter@5.3.0 (SIL OFL 1.1). One 48 KB file
+   covers weights 100–900, so there is exactly one font request on the page.
+   Labels use the system mono stack: at 11px uppercase with wide tracking the
+   difference is imperceptible, and it saves a second 40 KB download.
+
+   Served from /public at a stable path rather than bundled. A bundled font gets
+   a content hash, which can't be named in index.html — and without a static URL
+   there is no way to <link rel="preload"> it. The font is only discoverable
+   after the CSS parses otherwise, costing a round trip on the headline.
+   ─────────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   DESIGN TOKENS — locked palette. Three colors doing all the work.
+   ─────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-bg: #0a0a0b; /* page background — near-black, neutral */
+  --color-surface: #141416; /* cards, elevated panels */
+  --color-border: #232328; /* hairline dividers, card outlines */
+  --color-text: #f5f4f2; /* headlines & body — warm off-white, never pure #FFF */
+  --color-muted: #8a8a90; /* labels, captions, secondary copy */
+  --color-accent: #00e28a; /* the Launchly green — rationed */
+  --color-accent-deep: #0b3b2a; /* low-opacity glows, hover fills only */
+
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/*
+ * Vertical rhythm — one knob for every section instead of ad-hoc padding.
+ * Plain custom properties, not an @theme token: @theme has to sit at the top
+ * level, so it can't hold a value that changes per breakpoint.
+ */
+:root {
+  --space-section: 6rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --space-section: 8rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --space-section: 10rem;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   BASE
+   ─────────────────────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem; /* anchor targets clear the fixed header */
+    -webkit-text-size-adjust: 100%;
+
+    /*
+     * Sideways overflow is contained here as well as on `body`, because `body`
+     * alone does not hold it: elements that scale up or rotate in 3D push past
+     * their layout box (the pricing stage rotates its cards on Y), and at rest
+     * that left the page draggable 86px sideways at the top — measured, not
+     * theorised.
+     *
+     * `clip`, never `hidden`. `hidden` would make the root a scroll container,
+     * which breaks `position: sticky` further down the page — and the entire
+     * "How it works" section is built on sticky.
+     */
+    overflow-x: clip;
+  }
+
+  /*
+   * While Lenis is driving, the browser's own smooth scrolling has to be off —
+   * two easing curves competing for the same scrollTop produces a stutter.
+   *
+   * Matched on `.lenis` (which Lenis sets itself) and `.lenis-active` (which we
+   * set) rather than the `.lenis-smooth` class from older docs — v1.3 no longer
+   * emits it, so a `.lenis-smooth` selector silently never matches.
+   */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+
+  html.lenis,
+  html.lenis-active {
+    scroll-behavior: auto !important;
+  }
+
+  html.lenis-stopped {
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 1rem; /* 16px floor so iOS never zooms on input focus */
+    line-height: 1.6;
+    font-feature-settings: 'cv11'; /* single-storey a — softens Inter slightly */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: clip;
+  }
+
+  /*
+   * Display type. Inter needs negative tracking as it scales up or it reads
+   * loose and cheap; the bigger the type, the tighter it goes.
+   */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-weight: 600;
+    line-height: 1.04;
+    letter-spacing: -0.025em;
+  }
+
+  h1 {
+    letter-spacing: -0.04em;
+    line-height: 0.92;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-bg);
+  }
+
+  /* Honour the OS setting: no smooth scroll, no transitions, no motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+ * Travels the image's full height minus the frame's, so it stops exactly at the
+ * bottom of the client page. The clamp mirrors the frame height in Showcase.tsx
+ * — if you change one, change both or the loop will overshoot into white space.
+ */
+@keyframes showcase-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, calc(-100% + clamp(220px, 46svh, 560px)), 0);
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   LOGO — slow idle rotation
+   The velocity-driven spin is GSAP's, on a nested group. This is the baseline
+   turn that continues when the page is still, and it is CSS on purpose: a
+   compositor animation costs nothing, where a per-frame ticker callback would
+   burn main-thread work for the whole session just to keep something moving.
+   ─────────────────────────────────────────────────────────────────────────── */
+@keyframes logo-idle {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.logo-idle {
+  /* SVG children default to `transform-box: content-box`, which for a <g> has no
+     size — the rotation origin would collapse to the viewBox corner. */
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: logo-idle 32s linear infinite;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   SCROLL PROMPT — the rule breathes on a loop
+   Scroll drives the *fade* (in JS, tied to 5% of the page). The stretch is a
+   loop, so the prompt is alive before the visitor has scrolled at all — which is
+   the only moment it needs to be.
+
+   Both ends of the loop sit at scaleX(1) deliberately: the global reduced-motion
+   reset collapses animations to a single 0.01ms iteration, which parks an element
+   on its END keyframe. Ending where it started means that collapse leaves the
+   rule at its natural width instead of frozen mid-stretch.
+   ─────────────────────────────────────────────────────────────────────────── */
+@keyframes rule-breathe {
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(2.4);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.rule-breathe {
+  transform-origin: left center;
+  animation: rule-breathe 2.6s ease-in-out infinite;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   ORBIT CARD — the tier that has to look alive
+   Every loop below animates transform or opacity only, so none of them touch
+   layout or paint on the main thread.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Rotating conic border. The gradient itself never animates — an oversized
+ * square spins behind the card and an inset panel masks it down to a 1px rim.
+ * Animating a conic gradient's angle directly needs `@property` and repaints the
+ * whole element every frame; rotating a layer is a compositor transform.
+ */
+@keyframes conic-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.conic-ring {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--color-accent) 45deg,
+    transparent 130deg,
+    transparent 360deg
+  );
+  animation: conic-spin 9s linear infinite;
+}
+
+/* Slow radial drift of --accent-deep behind the card. */
+@keyframes glow-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(14%, 10%, 0) scale(1.18);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.glow-drift {
+  animation: glow-drift 12s ease-in-out infinite;
+}
+
+/*
+ * ~3% film grain. The noise is a static inline SVG turbulence texture; only its
+ * position is animated, and via transform on an oversized layer rather than
+ * `background-position`, which would repaint every frame.
+ */
+.grain {
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain-shift 1.1s steps(3) infinite;
+}
+
+@keyframes grain-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  33% {
+    transform: translate3d(-2%, 1.5%, 0);
+  }
+  66% {
+    transform: translate3d(1.5%, -2%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PRICING STAGE — the idle float
+
+   Each card is presented alone, centred, and then held completely still for
+   long enough to read. Held perfectly still it stops reading as an object and
+   starts reading as a screenshot, so it drifts ~10px on a slow loop.
+
+   Its own element, one level below the slot: the slot's `transform` belongs to
+   the scroll scrub, and two rules writing one `transform` means one of them is
+   silently dropped. Nested, they compose.
+
+   CSS rather than a ticker callback — it is a compositor animation, so it costs
+   nothing on the main thread. Gated on `data-price-live`, which the stage's
+   ScrollTrigger sets only while the section is on screen: an animation nobody
+   can see has no business running.
+
+   Both ends of the loop sit at translate3d(0,0,0) deliberately, the same reason
+   as `.rule-breathe` — the reduced-motion reset collapses animations to one
+   0.01ms iteration, which parks an element on its END keyframe. Ending where it
+   starts means that collapse leaves the card level rather than 10px high.
+   ─────────────────────────────────────────────────────────────────────────── */
+@keyframes price-float {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/*
+ * Scoped to where the stage actually runs. Below 768px the cards sit in the
+ * document flow and there is no spotlight for anything to float inside.
+ */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  [data-price-live] .price-float {
+    animation: price-float 7s ease-in-out infinite;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   AMBIENT — the page itself, breathing
+
+   Four fixed layers behind everything, none of which are allowed to make the
+   page brighter. Two of them are the *existing* palette tokens at low alpha
+   (`--accent-deep` and `--accent`), so this adds depth to the dark rather than
+   adding a colour to it.
+
+   Every layer animates `transform` and nothing else, so the whole thing is four
+   composited layers and zero main-thread work per frame. No `filter: blur()` —
+   a radial gradient with a soft stop is already soft, and it costs one paint
+   instead of one per frame.
+
+   No explicit `will-change`. A transform animation promotes its element on its
+   own; writing the property by hand would pin four viewport-sized layers into
+   video memory for the whole session, on phones included.
+
+   Both ends of every loop sit on the same keyframe, the same reason as
+   `.rule-breathe` — the reduced-motion reset collapses an animation to a single
+   0.01ms iteration, which parks the element on its END keyframe. Ending where it
+   started means a visitor who asked for no motion gets the composition as
+   designed, held still.
+   ─────────────────────────────────────────────────────────────────────────── */
+@keyframes ambient-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(9%, 7%, 0) scale(1.16);
+  }
+}
+
+@keyframes ambient-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+  50% {
+    transform: translate3d(-8%, -6%, 0) scale(1);
+  }
+}
+
+@keyframes ambient-specks {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-1.5%, -2.5%, 0);
+  }
+}
+
+.ambient-a,
+.ambient-b {
+  position: absolute;
+  border-radius: 50%;
+}
+
+/*
+ * ALPHAS ARE MEASURED, NOT CHOSEN. See the table above.
+ *
+ * `--accent-deep` at 12%. The first attempt used 52%, which looked right and was
+ * wrong: screenshot-diffed against the same page with this layer removed, it
+ * raised the viewport's mean luminance by 1.99/255 on its own and pushed the
+ * green channel up 5.5 — a page that is supposed to be neutral near-black,
+ * measurably tinted. At 12% the pool is still legible as a corner catching light
+ * and costs 0.46.
+ */
+.ambient-a {
+  top: -32vmax;
+  left: -26vmax;
+  width: 92vmax;
+  height: 92vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(11, 59, 42, 0.105),
+    rgba(11, 59, 42, 0) 72%
+  );
+  animation: ambient-a 38s ease-in-out infinite;
+}
+
+/* `--accent` at 1.1%. Pure accent green, so it buys a hue shift far faster than
+   it buys light — this is the alpha at which the lower right of the page stops
+   being quite the same black as the upper left, and nothing more. */
+.ambient-b {
+  right: -30vmax;
+  bottom: -36vmax;
+  width: 104vmax;
+  height: 104vmax;
+  background: radial-gradient(
+    closest-side,
+    rgba(0, 226, 138, 0.011),
+    rgba(0, 226, 138, 0) 70%
+  );
+  animation: ambient-b 52s ease-in-out infinite;
+}
+
+/*
+ * Eight motes of dust, as one element.
+ *
+ * Written as eight stops in a single `background-image` rather than eight
+ * elements: one layer, one paint, one transform. Sized in fractions of a
+ * percent so they stay sub-pixel-soft at any viewport instead of resolving into
+ * dots on a large screen.
+ */
+.ambient-specks {
+  position: absolute;
+  inset: -6%;
+  opacity: 0.5;
+  background-image:
+    radial-gradient(1.6px 1.6px at 14% 22%, rgba(245, 244, 242, 0.42), transparent),
+    radial-gradient(1.2px 1.2px at 31% 68%, rgba(0, 226, 138, 0.34), transparent),
+    radial-gradient(1.8px 1.8px at 47% 12%, rgba(245, 244, 242, 0.3), transparent),
+    radial-gradient(1.1px 1.1px at 58% 81%, rgba(245, 244, 242, 0.38), transparent),
+    radial-gradient(1.5px 1.5px at 72% 34%, rgba(0, 226, 138, 0.26), transparent),
+    radial-gradient(1.3px 1.3px at 84% 59%, rgba(245, 244, 242, 0.34), transparent),
+    radial-gradient(1.7px 1.7px at 91% 17%, rgba(245, 244, 242, 0.24), transparent),
+    radial-gradient(1.2px 1.2px at 22% 91%, rgba(0, 226, 138, 0.3), transparent);
+  animation: ambient-specks 44s ease-in-out infinite;
+}
+
+/*
+ * 0.8% grain over the whole page, and unlike the Orbit card's it does not move.
+ * A full-viewport layer shifting three times a second is a full-viewport repaint
+ * three times a second; at this opacity the motion would not be visible anyway.
+ * What it buys is that large flat areas of #0A0A0B stop banding.
+ *
+ * The texture averages mid-grey, so its cost scales linearly with opacity: 1.6%
+ * measured +1.15/255 of mean luminance, and this is the largest single share of
+ * the ambient budget it can have and still leave room for the two pools. It is
+ * also the only one of the three that is hue-neutral, which is why it gets the
+ * biggest share rather than the smallest.
+ *
+ * Same texture URI as `.grain`, so the decoded bitmap is shared.
+ */
+.ambient-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.007;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PRICING STAGE — lighting
+
+   Three pieces, all of them opacity-only so they can ride the scrub without
+   costing a frame:
+
+   · `.price-halo`   — the glow behind whichever card is on stage
+   · `.stage-vignette` — everything that is not the card, pushed back
+   · `.card-sheen`   — the specular highlight that follows the cursor
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Sits behind the card inside the same slot, so it inherits the slot's scrubbed
+ * transform and travels with the card instead of sitting still behind a moving
+ * object. Its own opacity is driven separately by the timeline: the glow is
+ * still arriving after the card has landed, which is what stops the lighting
+ * reading as part of the card's own texture.
+ */
+.price-halo {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(
+    closest-side,
+    rgba(0, 226, 138, 0.11),
+    rgba(0, 226, 138, 0.03) 55%,
+    rgba(0, 226, 138, 0) 76%
+  );
+}
+
+/*
+ * The 0 above is the stage's starting state, and the stage only exists from
+ * 768px up with motion allowed. Everywhere else nothing will ever tween it, so
+ * it has to start lit — otherwise the glow simply never appears on a phone, or
+ * for a visitor who asked for no motion. The slot's own entrance fade carries it
+ * in on mobile; under reduced motion it is just there, which is the point.
+ */
+@media (max-width: 767px), (prefers-reduced-motion: reduce) {
+  .price-halo {
+    opacity: 1;
+  }
+}
+
+/*
+ * Depth by subtraction. Rather than lighting the active card harder — which
+ * would mean making the page brighter — the stage darkens everything the card
+ * is not, so the card becomes the brightest thing on screen without changing.
+ *
+ * Transitioned rather than scrubbed: it is a state (a card owns the stage / no
+ * card does), not a position on the storyboard.
+ */
+.stage-vignette {
+  opacity: 0;
+  background: radial-gradient(
+    58% 52% at 50% 50%,
+    rgba(10, 10, 11, 0) 0%,
+    rgba(10, 10, 11, 0.42) 62%,
+    rgba(10, 10, 11, 0.72) 100%
+  );
+  transition: opacity 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-price-live] .stage-vignette {
+  opacity: 1;
+}
+
+/*
+ * The moving light reflection. A soft white disc that trails the cursor across
+ * the card, clipped by the card's own `overflow: hidden`.
+ *
+ * Positioned by GSAP rather than by CSS custom properties on pointermove: an
+ * unregistered custom property invalidates style on the whole subtree each time
+ * it changes, where `transform` on a promoted layer does not touch style at all.
+ */
+.card-sheen {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(
+    closest-side,
+    rgba(245, 244, 242, 0.06),
+    rgba(245, 244, 242, 0.02) 45%,
+    rgba(245, 244, 242, 0) 72%
+  );
+  transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * Fade handled in CSS, position handled in JS. The pointer handler already runs
+ * once per move; making it also decide visibility would mean a second style
+ * write per event for a value that only changes twice per hover.
+ */
+@media (hover: hover) and (pointer: fine) {
+  [data-price-card]:hover .card-sheen {
+    opacity: 1;
+  }
+}
+
+/*
+ * The card as a physical object: the shadow tightens and an accent hairline
+ * appears at the edge as the cursor arrives. `box-shadow` is a paint, but it
+ * changes twice per hover rather than per frame, so it never lands inside the
+ * scrub's frame budget.
+ *
+ * The hover selector is attribute + pseudo-class, which outweighs the Tailwind
+ * `shadow-[…]` utility on the same element — the resting shadow stays declared
+ * where the rest of the card's look is declared, in the component.
+ */
+[data-price-card] {
+  transition: box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-price-card]:hover {
+    box-shadow:
+      0 60px 140px -38px rgba(0, 0, 0, 0.95),
+      0 0 0 1px rgba(0, 226, 138, 0.14);
+  }
+}
+
+/*
+ * The glass edge. One hairline across the top of each card, brightest in the
+ * middle — the highlight a physical panel picks up from a light source above
+ * it. It is what makes the card read as having a surface rather than being a
+ * region of a different colour.
+ */
+.card-lightline {
+  background: linear-gradient(
+    90deg,
+    rgba(245, 244, 242, 0) 0%,
+    rgba(245, 244, 242, 0.16) 50%,
+    rgba(245, 244, 242, 0) 100%
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   COMPONENTS
+   ─────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  /* The tiny uppercase mono label: `01 / WORK` */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    line-height: 1.4;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Page gutter + max measure. Full-bleed sections opt out. */
+  .shell {
+    width: 100%;
+    max-width: 90rem; /* 1440px */
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .shell {
+      padding-inline: 2.5rem;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .shell {
+      padding-inline: 4rem;
+    }
+  }
+
+  .section {
+    padding-block: var(--space-section);
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* Line length caps. Body copy never exceeds ~75 characters. */
+  .measure {
+    max-width: 44ch;
+  }
+
+  .measure-wide {
+    max-width: 62ch;
+  }
+
+  /*
+   * Phone / tablet fallback for the portfolio showcase: the client homepage
+   * drifts on a slow CSS loop instead of being scrubbed by scroll.
+   *
+   * Written as "on by default, off where GSAP takes over" rather than as a
+   * `max-width` — because the condition that matters is not a width. The pin is
+   * gated on `desk` (see the variant at the top of this file), so a `max-width:
+   * 1023px` fallback leaves a hole at exactly 1024px: an iPad in landscape gets
+   * no scrub *and* no drift, and the screenshot just sits there dead. Stating it
+   * as the inverse of the real gate closes the hole by construction — the two
+   * rules cannot drift apart, because there is only one of them.
+   *
+   * Gated on `prefers-reduced-motion: no-preference` rather than relying on the
+   * global reduced-motion reset — that reset collapses animations to 0.01ms with
+   * one iteration, which on an `alternate` loop would snap the image to its END
+   * state and park the visitor on the client's footer. Here, no motion means the
+   * image simply stays at the top of the page, which is what you'd want to see.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    .showcase-drift {
+      animation: showcase-drift 80s linear infinite alternate;
+    }
+  }
+
+  /* From 1024px up *with a real pointer*, GSAP owns this element's transform,
+     and two things writing the same property fight each other. */
+  @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+    .showcase-drift {
+      animation: none;
+    }
+  }
+
+  /*
+   * 44px minimum hit area for anything tappable, relaxed only on devices that
+   * actually have a precise pointer.
+   *
+   * Keyed on `pointer: fine` rather than a width breakpoint on purpose: an iPad
+   * in portrait is 768px wide and entirely touch-driven, so a `min-width` rule
+   * silently strips the touch target from the exact device most likely to need
+   * it. Width tells you about the canvas; it tells you nothing about the finger.
+   */
+  .tap-link,
+  .tap-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem; /* 44px */
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .tap-link {
+      min-height: 0;
+    }
+
+    /* The language pill stays deliberately compact on desktop, not collapsed. */
+    .tap-toggle {
+      min-height: 2rem;
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     BUTTONS
+
+     The lift is split in two, and the reason is not stylistic.
+
+     CSS cannot own `scale` on an element GSAP is animating. GSAP's CSSPlugin, on
+     taking over an element's `transform`, folds any computed `translate`/`scale`/
+     `rotate` into its own matrix and then writes `style.scale = style.rotate =
+     style.translate = "none"` inline to stop them applying twice — CSSPlugin.js,
+     lines 861-865. So the independent transform properties do NOT compose with
+     GSAP; GSAP deliberately switches them off. Verified by measurement, not read
+     off the docs: with a CSS `.btn:hover { scale }`, computed `scale` on a hovered
+     primary CTA is `none`.
+
+     Primary CTAs carry `data-magnetic`. So:
+
+       · `[data-magnetic]`  → `useMagnetic` owns scale, alongside the pull. It
+                              scales on *proximity* rather than on hover, off the
+                              falloff it already computes for the pull, so the
+                              button starts responding before the cursor lands.
+       · everything else    → the CSS below, which GSAP never touches.
+
+     DO NOT add `scale` here for `[data-magnetic]`. It will not fail loudly; it
+     will be silently zeroed on the next pointermove.
+
+     Everything transitioned here is compositor-only apart from the colours,
+     which change once per hover rather than per frame.
+     ───────────────────────────────────────────────────────────────────────── */
+  .btn {
+    position: relative;
+    overflow: hidden;
+    transition:
+      scale 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 0.3s ease,
+      border-color 0.3s ease,
+      color 0.3s ease;
+  }
+
+  /*
+   * The sweep. A wide, very faint diagonal band that crosses the button once on
+   * hover and stops at the far edge — it does not loop. A looping shine on a
+   * button reads as a "buy now" badge; one pass on approach reads as light
+   * moving over a surface.
+   *
+   * `translate` again, for the same reason as above.
+   */
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: -1px -40%;
+    pointer-events: none;
+    background: linear-gradient(
+      100deg,
+      transparent 38%,
+      rgba(255, 255, 255, 0.14) 50%,
+      transparent 62%
+    );
+    translate: -65% 0;
+    opacity: 0;
+  }
+
+  /* Depth cue only — a soft floor shadow that tightens as the button rises. */
+  .btn-primary {
+    box-shadow: 0 6px 20px -10px rgba(0, 226, 138, 0.5);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    /* Not `[data-magnetic]` — see the note above. */
+    .btn:not([data-magnetic]):hover {
+      scale: 1.022;
+    }
+
+    .btn:hover::after {
+      translate: 65% 0;
+      opacity: 1;
+      transition:
+        translate 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.5s ease;
+    }
+
+    .btn-primary:hover {
+      box-shadow:
+        0 14px 40px -12px rgba(0, 226, 138, 0.55),
+        0 0 0 1px rgba(0, 226, 138, 0.35);
+    }
+
+    .btn-secondary:hover {
+      box-shadow:
+        0 14px 40px -16px rgba(0, 0, 0, 0.9),
+        0 0 22px -8px rgba(0, 226, 138, 0.22);
+    }
+  }
+
+  /* Press is faster than release on purpose — that asymmetry is what makes a
+     control feel mechanical rather than rubbery. Magnetic buttons get their
+     press from `useMagnetic` for the same reason as the lift. */
+  .btn:not([data-magnetic]):active {
+    scale: 0.985;
+    transition-duration: 0.1s;
+  }
+
+  /* Icons inside a button drift a hair in the direction they point. */
+  .btn [data-icon] {
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .btn:hover [data-icon] {
+      transform: translateX(3px);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     LINKS — the underline draws in from the side the cursor arrived on
+
+     `scaleX` on a pseudo-element, so no layout and no repaint. `currentColor`
+     means it inherits whatever the link's own hover colour already is, and the
+     existing `hover:text-accent` / `hover:text-text` utilities keep working
+     untouched.
+     ───────────────────────────────────────────────────────────────────────── */
+  .link-underline {
+    position: relative;
+  }
+
+  .link-underline::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.05em;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.55;
+    transform: scaleX(0);
+    transform-origin: right center;
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .link-underline:hover::after {
+      transform: scaleX(1);
+      transform-origin: left center;
+    }
+  }
+
+  /* Keyboard users get it too — the focus ring says *where*, the underline says
+     *what kind of thing*. */
+  .link-underline:focus-visible::after {
+    transform: scaleX(1);
+    transform-origin: left center;
+  }
+
+  /* Icons that sit on their own next to a link or a bare control. */
+  .icon-nudge [data-icon] {
+    transition:
+      transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.3s ease;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .icon-nudge:hover [data-icon] {
+      transform: translateY(-3px);
+    }
+  }
+}
