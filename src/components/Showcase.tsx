@@ -76,7 +76,20 @@ export function Showcase({ project }: { project: Project }) {
         scrollTrigger: {
           trigger: root.current,
           start: 'top top',
-          end: '+=250%',
+          /*
+           * 360%, up from 250%.
+           *
+           * The whole timeline below is authored in normalised 0–1 progress, so
+           * this one number is the section's pacing dial — every leg of the
+           * client page's scroll and every callout gets proportionally more
+           * scrolling to happen across, with none of their relative timing
+           * touched. At 250% the homepage flew past faster than the callouts
+           * beside it could be read.
+           *
+           * Distance rather than easing or a bigger `scrub`: those two make the
+           * frame lag the wheel, which reads as unresponsive, not as considered.
+           */
+          end: '+=360%',
           pin: pin.current,
           pinSpacing: true,
           scrub: 1,

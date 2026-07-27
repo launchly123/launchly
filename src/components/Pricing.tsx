@@ -915,7 +915,22 @@ export function Pricing({ index }: { index: number }) {
    * nothing is, so it falls back to the plain two-up grid — the same layout
    * this section had before.
    */
-  const trackClass = animate ? 'relative mt-16 md:h-[360svh]' : 'mt-16'
+  /*
+   * 520svh, not 360.
+   *
+   * The scrub maps this whole track onto the storyboard's 12.6 units, so the
+   * track's height IS the pacing dial — nothing about the timeline changes, each
+   * beat simply gets more scroll to happen across. At 360svh a unit was ~29svh
+   * of scrolling, which made the entrance land fast and the reading hold pass
+   * before you had finished the feature list. At 520svh a unit is ~41svh: the
+   * card takes about a full viewport of scrolling to arrive, and its hold is
+   * long enough to actually read.
+   *
+   * Deliberately not done by slowing the easing or raising `scrub` — those make
+   * the motion lag the wheel, which reads as unresponsive rather than as
+   * stately. Distance is the honest lever.
+   */
+  const trackClass = animate ? 'relative mt-16 md:h-[520svh]' : 'mt-16'
   /* `relative` so the vignette's `inset-0` resolves to the sticky viewport box
      rather than to the page. */
   const stageClass = animate
@@ -935,7 +950,7 @@ export function Pricing({ index }: { index: number }) {
         <SectionHeader index={index} label={t.pricing.label} heading={t.pricing.heading} />
       </div>
 
-      <div ref={track} className={trackClass}>
+      <div ref={track} data-price-track className={trackClass}>
         <div ref={stage} className={stageClass}>
           {/*
             DEPTH. Everything the card is not, pushed back — a vignette that
