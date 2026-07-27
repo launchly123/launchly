@@ -77,7 +77,7 @@ export function Showcase({ project }: { project: Project }) {
           trigger: root.current,
           start: 'top top',
           /*
-           * 360%, up from 250%.
+           * 450%, up from 250% via 360%.
            *
            * The whole timeline below is authored in normalised 0–1 progress, so
            * this one number is the section's pacing dial — every leg of the
@@ -86,13 +86,21 @@ export function Showcase({ project }: { project: Project }) {
            * touched. At 250% the homepage flew past faster than the callouts
            * beside it could be read.
            *
-           * Distance rather than easing or a bigger `scrub`: those two make the
-           * frame lag the wheel, which reads as unresponsive, not as considered.
            */
-          end: '+=360%',
+          end: '+=450%',
           pin: pin.current,
           pinSpacing: true,
-          scrub: 1,
+          /*
+           * 2s of catch-up, up from 1. Distance alone does not answer "too fast
+           * when I scroll fast" — flick hard and a 1s scrub still races the
+           * frame to wherever the wheel landed. The longer catch-up gives the
+           * client page real inertia: it keeps gliding after the flick and
+           * arrives under its own weight instead of snapping.
+           *
+           * The cost is honest — stop scrolling and the image is still settling
+           * for up to two seconds. That is the trade being made deliberately.
+           */
+          scrub: 2,
           invalidateOnRefresh: true,
           onToggle: (self) => {
             const el = frame.current

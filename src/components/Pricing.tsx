@@ -526,14 +526,21 @@ export function Pricing({ index }: { index: number }) {
           start: 'top top',
           end: 'bottom bottom',
           /*
-           * `scrub: 1` on a precise pointer adds a one-second catch-up, which is
-           * what makes a wheel gesture feel weighted rather than mechanical.
+           * 2s of catch-up on a precise pointer, up from 1.
            *
-           * On touch it is `true` — locked 1:1 to the finger. Momentum scrolling
-           * is not eased by Lenis here (`syncTouch` is off site-wide), so a
-           * catch-up would read as the card lagging behind the drag.
+           * Distance is what makes a slow scroll unhurried; this is what makes a
+           * FAST one unhurried. At `scrub: 1` a hard flick still threw the card
+           * most of the way across the stage — the storyboard was spread over
+           * more scrolling, but a wheel gesture could still eat it in one go. At
+           * 2 the card keeps travelling after the flick has stopped and settles
+           * into place under its own momentum.
+           *
+           * On touch it stays `true` — locked 1:1 to the finger. Momentum
+           * scrolling is not eased by Lenis here (`syncTouch` is off site-wide),
+           * so any catch-up reads as the card lagging behind the drag rather
+           * than as weight.
            */
-          scrub: fine ? 1 : true,
+          scrub: fine ? 2 : true,
           invalidateOnRefresh: true,
           onToggle: (self) => {
             /*
@@ -916,21 +923,23 @@ export function Pricing({ index }: { index: number }) {
    * this section had before.
    */
   /*
-   * 520svh, not 360.
+   * 650svh, up from 360 via 520.
    *
-   * The scrub maps this whole track onto the storyboard's 12.6 units, so the
-   * track's height IS the pacing dial — nothing about the timeline changes, each
-   * beat simply gets more scroll to happen across. At 360svh a unit was ~29svh
-   * of scrolling, which made the entrance land fast and the reading hold pass
-   * before you had finished the feature list. At 520svh a unit is ~41svh: the
-   * card takes about a full viewport of scrolling to arrive, and its hold is
-   * long enough to actually read.
+   * The scrub maps this track onto the storyboard's 12.6 units, so the track's
+   * height IS the pacing dial — nothing about the timeline changes, each beat
+   * simply gets more scroll to happen across. Note the trigger runs `top top` to
+   * `bottom bottom`, so the scrubbed span is the track MINUS one viewport: 650svh
+   * of element gives 5.5 viewports of actual scrubbing, not 6.5.
    *
-   * Deliberately not done by slowing the easing or raising `scrub` — those make
-   * the motion lag the wheel, which reads as unresponsive rather than as
-   * stately. Distance is the honest lever.
+   * That works out at ~44svh per storyboard unit — a card takes just over a full
+   * viewport of scrolling to arrive, then holds dead still for about 1.4 more.
+   *
+   * Distance was only half the answer. It governs how long the section takes at
+   * a given scroll speed; it does nothing about how fast the section is allowed
+   * to go when someone flicks the wheel. That is `scrub`, raised to 2 on the
+   * ScrollTrigger above. Both had to move.
    */
-  const trackClass = animate ? 'relative mt-16 md:h-[520svh]' : 'mt-16'
+  const trackClass = animate ? 'relative mt-16 md:h-[650svh]' : 'mt-16'
   /* `relative` so the vignette's `inset-0` resolves to the sticky viewport box
      rather than to the page. */
   const stageClass = animate

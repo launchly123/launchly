@@ -39,17 +39,28 @@ export function useSmoothScroll() {
 
     const lenis = new Lenis({
       /*
-       * 1.15, up from 1.05. The extra tenth is entirely in the tail — expo-out
-       * has covered ~90% of the distance in the first third of the duration
-       * either way, so what lengthens is the settle, not the response. The page
-       * still starts moving on the same frame as the wheel event; it just comes
-       * to rest more gradually, which is the part that reads as mass.
+       * 1.9, up from 1.15 — and this one is the load-bearing change for "still
+       * too fast even when I scroll fast".
        *
-       * This is also what the pricing stage's `scrub: 1` is riding on: the two
-       * lags compose, and a longer settle underneath makes the card's catch-up
-       * land as one continuous movement rather than two.
+       * Everything else on the page is scrubbed, so it can only be as slow as
+       * the scroll position feeding it. A hard wheel flick used to travel its
+       * whole distance in about a second, and every scrubbed section had no
+       * choice but to race along with it. Lenis is the one dial that governs how
+       * fast the page itself moves in response to a flick, so lengthening it
+       * slows every section at once — including the "How it works" hand-off,
+       * which is native CSS sticky and cannot be slowed any other way without
+       * restructuring the panels.
+       *
+       * Expo-out still covers ~90% of the distance in the first third, so the
+       * page continues to start moving on the same frame as the wheel event.
+       * What grows is the settle. It reads as mass, not as lag — but it is a
+       * whole-page change, and the most likely thing to want dialled back if it
+       * starts to feel heavy rather than considered.
+       *
+       * Touch is untouched: `syncTouch` is off, so a phone keeps native
+       * momentum scrolling and none of this applies.
        */
-      duration: 1.15,
+      duration: 1.9,
       // Expo-out: quick to respond, long settle. Reads as weight, not lag.
       easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       smoothWheel: true,
@@ -511,7 +522,23 @@ export function useScrollReveals() {
             trigger: panel,
             start: 'top top',
             end: 'bottom 20%',
-            scrub: true,
+            /*
+             * 1.5s of catch-up, where this was `true` (locked 1:1, no inertia).
+             *
+             * The panels themselves stack with native CSS `sticky`, so their
+             * hand-off speed is a pure function of panel height — and the panels
+             * have to stay one viewport tall or a sticky box taller than the
+             * screen stops holding its own content in view. That means the
+             * hand-off distance is not available as a dial here the way it is in
+             * the showcase and the pricing stage.
+             *
+             * What IS available is this: the outgoing step's recede now trails
+             * the scroll instead of tracking it exactly, so a fast flick no
+             * longer snaps one step into the next. The rest of the slowdown for
+             * this section comes from the longer Lenis duration, which governs
+             * how fast the page travels underneath the sticky stack.
+             */
+            scrub: 1.5,
             ...manageWillChange(content),
           },
         })
