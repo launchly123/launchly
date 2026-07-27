@@ -12,9 +12,16 @@ import { SectionHeader } from './SectionHeader'
 
 gsap.registerPlugin(ScrollTrigger)
 
-type TierId = 'liftoff' | 'orbit'
+type TierId = 'liftoff' | 'orbit' | 'care' | 'domain'
 
-const TIERS: TierId[] = ['liftoff', 'orbit']
+/**
+ * Order is the story: the two build tiers first, then the two things you add to
+ * a finished site. Everything downstream is derived from this array — the
+ * storyboard length, the hit-test windows, the track height, the keyboard
+ * focus targets — so adding a card is this line plus its copy, and nothing in
+ * the animation had to change to take two more.
+ */
+const TIERS: TierId[] = ['liftoff', 'orbit', 'care', 'domain']
 
 /* ═══════════════════════════════════════════════════════════════════════════
    THE STORYBOARD
@@ -64,6 +71,21 @@ const STRIDE = ENTER + HOLD + EXIT - OVERLAP
  * carries on underneath it, rather than leaving an empty stage behind.
  */
 const TOTAL = (TIERS.length - 1) * STRIDE + ENTER + HOLD
+
+/**
+ * Scroll distance one storyboard unit is worth, in svh.
+ *
+ * The constant the section is actually tuned on. Beats are abstract, so this is
+ * what turns them into distance — and because the scroll velocity is capped
+ * inside the stage, distance is what turns them into *seconds*. Holding it fixed
+ * is what guarantees the fifth card, if there is ever one, gets exactly the
+ * reading pause the first four get.
+ *
+ * Measured, not chosen: 48 is what two tiers across 760svh already worked out
+ * at, so keeping it means nothing about the existing cards' pacing changed when
+ * two more were added.
+ */
+const SVH_PER_UNIT = 48
 
 function beats(i: number) {
   const at = i * STRIDE
@@ -170,6 +192,24 @@ function TierCard({
   const copy = t.pricing[tier]
   const card = useRef<HTMLElement>(null)
   const sheen = useRef<HTMLSpanElement>(null)
+
+  /*
+   * Read through `in`, not through optional chaining on a wide union.
+   *
+   * The four tier objects are not the same shape — two carry `example`, one
+   * carries `note`, one carries `pricePrefix`, and TypeScript narrows
+   * `t.pricing[tier]` to the union of all four. `in` is the narrowing that
+   * actually convinces it, and it is also the honest test: the card renders the
+   * block a tier HAS rather than the block its name implies it should.
+   */
+  const prefix = 'pricePrefix' in copy ? copy.pricePrefix : null
+
+  const foot =
+    'example' in copy
+      ? { label: t.pricing.liveExample, body: copy.example }
+      : 'note' in copy
+        ? { label: t.pricing.pricingNote, body: copy.note }
+        : null
 
   /*
    * Both cards lean toward the cursor, and the highlight on the glass follows it.
@@ -375,8 +415,21 @@ function TierCard({
               price — not a degraded experience, an incorrect one.
             */}
             <span className="sr-only">
-              {priceLabel(config.pricing[tier])} — {t.pricing.oneTime}
+              {prefix ? `${prefix} ` : ''}
+              {priceLabel(config.pricing[tier])} — {copy.period}
             </span>
+            {/*
+              The "from" on the domain card, when its copy carries one. Its own
+              span in the same baseline row rather than part of the numeral, so
+              it sits on the eyebrow's scale instead of being set at 4rem — and
+              so the counting numeral beside it stays a pure number for the
+              tween to write into.
+            */}
+            {prefix && (
+              <span aria-hidden="true" className="eyebrow">
+                {prefix}
+              </span>
+            )}
             <span
               aria-hidden="true"
               data-count-to={config.pricing[tier]}
@@ -386,7 +439,7 @@ function TierCard({
               {priceLabel(config.pricing[tier])}
             </span>
             <span aria-hidden="true" className="eyebrow">
-              {t.pricing.oneTime}
+              {copy.period}
             </span>
           </p>
 
@@ -417,10 +470,23 @@ function TierCard({
         </div>
 
         <div className="mt-9 md:col-start-1 md:row-start-2 md:mt-0 md:self-end md:pt-9">
-          <div className="border-t border-border pt-6">
-            <p className="eyebrow">{t.pricing.liveExample}</p>
-            <p className="mt-2 text-[0.9375rem]">{copy.example}</p>
-          </div>
+          {/*
+            One block, three states. Liftoff and Orbit point at a real site;
+            the domain card uses the same frame to carry the "varies by
+            extension" note; Care has neither and renders nothing rather than an
+            empty rule above the button.
+
+            Dropping it entirely, rather than leaving an empty bordered box, is
+            what keeps the CTA in the same place on every card: the deck gives
+            all four cards one grid cell, so the cell is as tall as the tallest
+            and `md:self-end` pins each button to the same baseline regardless.
+          */}
+          {foot && (
+            <div className="border-t border-border pt-6">
+              <p className="eyebrow">{foot.label}</p>
+              <p className="mt-2 text-[0.9375rem]">{foot.body}</p>
+            </div>
+          )}
 
           <ButtonLink
             href={smsUrl(messageOpener(lang, tier))}
@@ -973,16 +1039,21 @@ export function Pricing({ index }: { index: number }) {
    * this section had before.
    */
   /*
-   * 760svh, up from 360 via 520, 650 and 700.
+   * Derived, not typed in. Four cards need roughly twice the track two needed,
+   * and a hand-tuned number would have to be re-tuned every time a card is added
+   * — which is exactly the drift that would silently shorten everyone's reading
+   * time. `SVH_PER_UNIT` is the thing worth holding constant: it is what
+   * converts a storyboard beat into scroll distance, and through the velocity
+   * cap, into seconds on screen.
    *
-   * The driver maps this track onto the storyboard's 13.8 units, so the track's
-   * height IS the distance dial — nothing about the timeline changes, each beat
-   * simply gets more scroll to happen across. Note the trigger runs `top top` to
-   * `bottom bottom`, so the driven span is the track MINUS one viewport: 760svh
-   * of element gives 6.6 viewports of actual travel, not 7.6.
+   * The trigger runs `top top` to `bottom bottom`, so the driven span is the
+   * track MINUS one viewport — hence the `+ 100`. At four tiers this comes out
+   * at 1490svh: 13.9 viewports of travel across 29 units.
    *
-   * That works out at ~48svh per storyboard unit — a card takes about 1.15
-   * viewports of scrolling to arrive, then holds dead still for 1.8 more.
+   * 48svh per unit, unchanged from when there were two cards. A card still takes
+   * about 1.15 viewports of scrolling to arrive, then holds dead still for 1.8
+   * more, so Care and Custom domain get the same reading pause Liftoff and Orbit
+   * already had rather than being rushed to keep the page short.
    *
    * Distance is the least of the three dials. It governs how long the section
    * takes at a given scroll speed and nothing else; raised on its own it was
@@ -990,10 +1061,31 @@ export function Pricing({ index }: { index: number }) {
    * more distance faster. What makes the section unskippable is the velocity cap
    * on the scroll (`MAX_LEAD`), and what makes it feel weighted is the wheel
    * damping — both in `useScrollMotion`. Distance is what converts that capped
-   * velocity into seconds: at ~660 px/s these 6.6 viewports cannot be crossed in
-   * under about nine.
+   * velocity into seconds: at ~660 px/s these 13.9 viewports cannot be crossed
+   * in under about nineteen, which is what buys every card its minimum.
    */
-  const trackClass = animate ? 'relative mt-16 md:h-[760svh]' : 'mt-16'
+  /*
+   * Fed through a custom property, NOT interpolated into the class string.
+   *
+   * Tailwind generates utilities by scanning source text for literal class
+   * names, so an interpolated arbitrary value compiles to a class that is never
+   * written to the stylesheet — the track would silently collapse to its content
+   * height and the whole storyboard would play out in half a screen. The
+   * var-based utility below is a literal the scanner can see, and the number
+   * arrives at runtime.
+   *
+   * That scanning is also why no utility is spelled out with its square
+   * brackets anywhere in this comment. The scanner reads comments, not just
+   * JSX — an illustrative arbitrary-value token written in prose here was
+   * picked up as a real class and emitted an invalid height declaration into the
+   * bundle. Twice: the second time was this very paragraph explaining the first.
+   */
+  const trackClass = animate
+    ? 'relative mt-16 md:h-[var(--price-track)]'
+    : 'mt-16'
+  const trackStyle = animate
+    ? ({ '--price-track': `${Math.round(TOTAL * SVH_PER_UNIT + 100)}svh` } as React.CSSProperties)
+    : undefined
   /* `relative` so the vignette's `inset-0` resolves to the sticky viewport box
      rather than to the page. */
   const stageClass = animate
@@ -1013,7 +1105,7 @@ export function Pricing({ index }: { index: number }) {
         <SectionHeader index={index} label={t.pricing.label} heading={t.pricing.heading} />
       </div>
 
-      <div ref={track} data-price-track className={trackClass}>
+      <div ref={track} data-price-track className={trackClass} style={trackStyle}>
         <div ref={stage} className={stageClass}>
           {/*
             DEPTH. Everything the card is not, pushed back — a vignette that

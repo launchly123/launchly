@@ -12,19 +12,47 @@ export function smsUrl(message?: string): string {
   return message ? `${base}?&body=${encodeURIComponent(message)}` : base
 }
 
-/** The opener we pre-write into the message when someone taps a CTA. */
-export function messageOpener(lang: Lang, tier?: 'liftoff' | 'orbit'): string {
-  const tierName = tier === 'orbit' ? 'Orbit' : tier === 'liftoff' ? 'Liftoff' : null
+/**
+ * What each CTA calls the thing it is asking about, per language.
+ *
+ * Not `tier.charAt(0).toUpperCase()`. Two of these are brand names that stay in
+ * English in both languages ("Liftoff", "Launchly Care") and one genuinely
+ * translates ("custom domain" → "dominio propio"), so the mapping has to be
+ * written out rather than derived from the key.
+ */
+const SUBJECT: Record<'liftoff' | 'orbit' | 'care' | 'domain', Record<Lang, string>> = {
+  liftoff: { en: 'Liftoff', es: 'Liftoff' },
+  orbit: { en: 'Orbit', es: 'Orbit' },
+  care: { en: 'Launchly Care', es: 'Launchly Care' },
+  domain: { en: 'custom domain', es: 'dominio propio' },
+}
+
+export type CtaSubject = keyof typeof SUBJECT
+
+/**
+ * The opener we pre-write into the message when someone taps a CTA.
+ *
+ * The two add-ons get their own sentence rather than being forced through the
+ * "I'm interested in the X tier" template: Care and a domain are not tiers, and
+ * a message saying they are would read as though it came from a form rather than
+ * from the person sending it.
+ */
+export function messageOpener(lang: Lang, tier?: CtaSubject): string {
+  const name = tier ? SUBJECT[tier][lang] : null
 
   if (lang === 'es') {
-    return tierName
-      ? `Hola Philip, vi el sitio de Launchly y me interesa el plan ${tierName}.`
-      : 'Hola Philip, vi el sitio de Launchly y quiero un sitio web para mi negocio.'
+    if (!name) return 'Hola Philip, vi el sitio de Launchly y quiero un sitio web para mi negocio.'
+    if (tier === 'care') return `Hola Philip, vi el sitio de Launchly y me interesa ${name}.`
+    if (tier === 'domain')
+      return `Hola Philip, vi el sitio de Launchly y me gustaría configurar un ${name}.`
+    return `Hola Philip, vi el sitio de Launchly y me interesa el plan ${name}.`
   }
 
-  return tierName
-    ? `Hi Philip, I saw the Launchly site and I'm interested in the ${tierName} tier.`
-    : 'Hi Philip, I saw the Launchly site and I want a website for my business.'
+  if (!name) return 'Hi Philip, I saw the Launchly site and I want a website for my business.'
+  if (tier === 'care') return `Hi Philip, I saw the Launchly site and I'm interested in ${name}.`
+  if (tier === 'domain')
+    return `Hi Philip, I saw the Launchly site and I'd like help setting up a ${name}.`
+  return `Hi Philip, I saw the Launchly site and I'm interested in the ${name} tier.`
 }
 
 /** Formats the contact-form contents as a text message. */

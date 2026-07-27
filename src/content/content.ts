@@ -28,10 +28,20 @@ export type Localized = { en: string; es: string }
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export const config = {
-  /** One-time project fees, in USD. Rendered as `$499`. */
+  /**
+   * Headline figures, in USD. Rendered as `$499`.
+   *
+   * Not all one-time any more: `liftoff` and `orbit` are project fees, `care` is
+   * monthly and `domain` is a yearly floor that varies by extension. The billing
+   * period each number carries is copy, not config — it lives on the tier's
+   * `period` string in both languages, so a translator can put "al mes" where it
+   * belongs instead of it being assembled in code.
+   */
   pricing: {
     liftoff: 499,
     orbit: 799,
+    care: 20,
+    domain: 15,
   },
 
   contact: {
@@ -363,11 +373,12 @@ const en = {
   pricing: {
     label: 'Pricing',
     heading: 'One price. Paid once.',
-    oneTime: 'one-time',
     includes: 'Includes',
     plus: 'Everything in Liftoff, plus',
     liveExample: 'Live example',
-    note: 'Care & updates plan available separately.',
+    /** Heading for the footer block on a card that has a note instead of an example. */
+    pricingNote: 'Pricing',
+    note: 'Care and domain setup are optional add-ons.',
     /**
      * The hook of the entire page, in three parts so the last one can carry the
      * accent colour. `{price}` is filled from `config.pricing`.
@@ -379,6 +390,7 @@ const en = {
     comparisonLabel: 'Side by side',
     liftoff: {
       name: 'Liftoff',
+      period: 'one-time',
       pitch:
         'A complete, custom website. Everything a local business needs to get found and get calls.',
       cta: 'Start a Liftoff project',
@@ -398,6 +410,7 @@ const en = {
     },
     orbit: {
       name: 'Orbit',
+      period: 'one-time',
       pitch:
         'Everything in Liftoff, and then the site starts doing the selling for you.',
       cta: 'Start an Orbit project',
@@ -410,6 +423,45 @@ const en = {
         'Unlimited sections',
         'Copywriting help',
         '3 rounds of revisions',
+      ],
+    },
+    /*
+     * The two add-ons. Same card, same storyboard beat, deliberately NOT
+     * `featured` — Orbit keeps the rotating rim so the build tier stays the hero
+     * of the section and these read as things you add to it.
+     *
+     * Neither carries a `example`, because neither has one to point at: the
+     * footer block is driven by whichever of `example` / `note` is present, and
+     * a card with neither simply does not render it. Inventing "live example"
+     * copy for a maintenance plan would be inventing a business fact.
+     */
+    care: {
+      name: 'Launchly Care',
+      period: 'per month',
+      pitch:
+        'Keep your website updated, optimized, and continuously improving.',
+      cta: 'Add Launchly Care',
+      features: [
+        'Content updates',
+        'Image swaps',
+        'Seasonal promos',
+        'Priority support',
+        'One premium design refresh every six months',
+      ],
+    },
+    domain: {
+      name: 'Custom domain',
+      /** Rendered before the numeral, so the figure reads "From $15 / per year". */
+      pricePrefix: 'from',
+      period: 'per year',
+      pitch: 'Get a professional domain set up for your business.',
+      cta: 'Set up my domain',
+      note: 'Starts at $15 per year and varies by extension.',
+      features: [
+        'Registration help',
+        'DNS configuration',
+        'SSL certificate',
+        'Connected to your site',
       ],
     },
     /*
@@ -573,11 +625,11 @@ const es: Content = {
   pricing: {
     label: 'Precios',
     heading: 'Un precio. Se paga una vez.',
-    oneTime: 'pago único',
     includes: 'Incluye',
     plus: 'Todo lo de Liftoff, más',
     liveExample: 'Ejemplo en vivo',
-    note: 'Plan de mantenimiento y actualizaciones disponible por separado.',
+    pricingNote: 'Precio',
+    note: 'El mantenimiento y el dominio son complementos opcionales.',
     hookLead: 'Está viendo Orbit en este momento.',
     hookMid: 'Todo lo que acaba de recorrer — eso es lo que',
     hookAccent: 'construyen {price}.',
@@ -585,6 +637,7 @@ const es: Content = {
     comparisonLabel: 'Comparación',
     liftoff: {
       name: 'Liftoff',
+      period: 'pago único',
       pitch:
         'Un sitio completo y a la medida. Todo lo que un negocio local necesita para que lo encuentren y lo llamen.',
       cta: 'Empezar con Liftoff',
@@ -604,6 +657,7 @@ const es: Content = {
     },
     orbit: {
       name: 'Orbit',
+      period: 'pago único',
       pitch:
         'Todo lo de Liftoff, y además el sitio empieza a vender por usted.',
       cta: 'Empezar con Orbit',
@@ -616,6 +670,39 @@ const es: Content = {
         'Secciones ilimitadas',
         'Ayuda con los textos',
         '3 rondas de ajustes',
+      ],
+    },
+    care: {
+      /*
+       * The product name stays in English — it is the brand, the same way
+       * "Liftoff" and "Orbit" are not translated either. Everything describing
+       * it is Spanish.
+       */
+      name: 'Launchly Care',
+      period: 'al mes',
+      pitch:
+        'Mantenga su sitio actualizado, optimizado y mejorando continuamente.',
+      cta: 'Agregar Launchly Care',
+      features: [
+        'Actualizaciones de contenido',
+        'Cambio de imágenes',
+        'Promociones de temporada',
+        'Soporte prioritario',
+        'Un rediseño premium cada seis meses',
+      ],
+    },
+    domain: {
+      name: 'Dominio propio',
+      pricePrefix: 'desde',
+      period: 'al año',
+      pitch: 'Un dominio profesional configurado para su negocio.',
+      cta: 'Configurar mi dominio',
+      note: 'Desde $15 al año; varía según la extensión.',
+      features: [
+        'Ayuda con el registro',
+        'Configuración de DNS',
+        'Certificado SSL',
+        'Conectado a su sitio',
       ],
     },
     comparison: [
