@@ -67,7 +67,26 @@ export function Process({ index }: { index: number }) {
             <li
               key={i}
               data-step-panel
-              className="relative border-t border-border bg-bg py-10 desk:sticky desk:top-0 desk:flex desk:min-h-svh desk:items-center desk:overflow-hidden desk:py-0"
+              /*
+                150svh with 50svh of it as padding-bottom, where this was a flat
+                100svh.
+
+                The stack has no scrub and no timeline — one panel covers the
+                next purely because it is sticky and the one after it is taller
+                than nothing. So the *only* dial for how long a step holds is
+                the panel's height, and the panel could not simply be made
+                taller: content centred in a 150svh box sits at 75svh, a quarter
+                of a screen below where it does now.
+
+                Padding-bottom fixes that for free. `box-sizing: border-box`
+                means the 150svh includes it, so the flex content box is back to
+                exactly 100svh and `items-center` puts the copy at 50svh — the
+                same pixel it was at before. What the extra 50svh buys is scroll:
+                the next panel's top now needs half a viewport more travel to
+                reach zero, so every step holds 50% longer with no visible
+                change to the layout at all.
+              */
+              className="relative border-t border-border bg-bg py-10 desk:sticky desk:top-0 desk:flex desk:min-h-[150svh] desk:items-center desk:overflow-hidden desk:pb-[50svh] desk:pt-0"
             >
               {/*
                 Reduced-motion fallback for the cross-fading rail. `--color-surface`

@@ -3,6 +3,13 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import Lenis from 'lenis'
 import { DESKTOP_MOTION } from '../lib/device'
+import {
+  advanceDamping,
+  registerCinemaZone,
+  resetDamping,
+  scrollDamping,
+  setZoneDamping,
+} from '../lib/pacing'
 import { getLenis, prefersReducedMotion, setLenis } from '../lib/smoothScroll'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -65,6 +72,31 @@ export function useSmoothScroll() {
       easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       smoothWheel: true,
       syncTouch: false,
+
+      /*
+       * The damping tap.
+       *
+       * Lenis calls this with the raw gesture before it consumes it, so scaling
+       * the delta here is scaling the wheel itself: inside a cinematic scene one
+       * notch of wheel buys less page than it does anywhere else. That is what
+       * "more scroll distance" means from the hand's point of view, and unlike a
+       * taller section it costs the document no extra height, leaves the
+       * scrollbar honest, and never applies to a visitor who is simply passing
+       * through on their way to the contact form.
+       *
+       * Wheel and trackpad only. Keyboard scrolling arrives as a native scroll
+       * that Lenis merely syncs to, so it is untouched — a keyboard user is
+       * never made to press the arrow key twice as often. Touch never reaches
+       * here either: `syncTouch` is off, so a phone bypasses this path entirely.
+       */
+      virtualScroll: (data) => {
+        const damp = scrollDamping()
+        if (damp < 1) {
+          data.deltaX *= damp
+          data.deltaY *= damp
+        }
+        return true
+      },
     })
 
     setLenis(lenis)
@@ -74,7 +106,12 @@ export function useSmoothScroll() {
 
     // The single RAF loop for the whole site. Lenis is driven from GSAP's ticker
     // rather than its own, so there is exactly one frame loop.
-    const tick = (time: number) => lenis.raf(time * 1000)
+    const tick = (time: number, deltaMs: number) => {
+      // Before `raf`, so a gesture arriving this frame is scaled by the value
+      // this frame agreed on rather than the previous one's.
+      advanceDamping(Math.min(deltaMs, 50) / 1000)
+      lenis.raf(time * 1000)
+    }
     gsap.ticker.add(tick)
     gsap.ticker.lagSmoothing(0)
 
@@ -100,6 +137,7 @@ export function useSmoothScroll() {
     return () => {
       document.removeEventListener('click', onClick)
       gsap.ticker.remove(tick)
+      resetDamping()
       lenis.destroy()
       setLenis(null)
       document.documentElement.classList.remove('lenis-active')
@@ -468,6 +506,49 @@ export function useScrollReveals() {
      */
     const mm = gsap.matchMedia()
 
+    /*
+     * ─────────────────────────────────────────────────────────────────────────
+     * CINEMA ZONES — where the wheel is deliberately made heavier.
+     *
+     * The three scenes the brief names. Registered here rather than inside each
+     * component so the multipliers sit next to each other and can be read as a
+     * set: they are relative to one another as much as to 1.
+     *
+     * 0.55 across the board. Two full turns of the wheel to buy what one used
+     * to, which is enough to stop a flick clearing a scene and not so much that
+     * the page feels stuck. This is the single number to raise if the site
+     * starts to feel like wading rather than like weight.
+     *
+     * Each zone is gated on the breakpoint where its scene actually exists.
+     * Below 1024px the steps are a plain list and the showcase is a still frame;
+     * below 768px the pricing stage is flow layout. Damping the wheel over a
+     * static list would be drag with nothing to show for it.
+     * ─────────────────────────────────────────────────────────────────────────
+     */
+    const DAMPING = 0.55
+
+    const cinema = (query: string, scenes: Array<[string, string]>) => {
+      mm.add(query, () => {
+        for (const [id, selector] of scenes) {
+          const el = document.querySelector(selector)
+          if (el) registerCinemaZone(id, el, DAMPING)
+        }
+
+        // The trigger is reverted with the context; the multiplier it last set
+        // is not, so a zone left active across a breakpoint change would damp
+        // the whole site for the rest of the session.
+        return () => {
+          for (const [id] of scenes) setZoneDamping(id, null)
+        }
+      })
+    }
+
+    cinema(DESKTOP_MOTION, [
+      ['cinema-steps', '[data-step-track]'],
+      ['cinema-showcase', '#work'],
+    ])
+    cinema('(min-width: 768px)', [['cinema-pricing', '[data-price-track]']])
+
     mm.add(DESKTOP_MOTION, () => {
       /*
        * Live-site frames on portfolio cards. Currently a no-op: the only project
@@ -509,6 +590,12 @@ export function useScrollReveals() {
       // The outgoing step recedes as the next one climbs over it. Ends at 20%
       // rather than 0 so the recede has finished before it is fully hidden —
       // otherwise you pay for an animation nobody ever sees.
+      //
+      // It now starts half a viewport late, which is the half-viewport the taller
+      // panels bought. Before, a step began dimming the instant it finished
+      // arriving; there was never a frame where it was simply sitting there
+      // being read. Now there are 50svh of complete stillness first, and the
+      // recede runs across the 80svh after that.
       panels.forEach((panel, i) => {
         if (i === panels.length - 1) return
         const content = panel.querySelector<HTMLElement>('[data-step-content]')
@@ -520,7 +607,7 @@ export function useScrollReveals() {
           ease: 'none',
           scrollTrigger: {
             trigger: panel,
-            start: 'top top',
+            start: 'top -50%',
             end: 'bottom 20%',
             /*
              * 1.5s of catch-up, where this was `true` (locked 1:1, no inertia).
@@ -553,11 +640,22 @@ export function useScrollReveals() {
         // A fresh vars object per trigger. ScrollTrigger keeps a reference to
         // the one it is handed, so sharing a literal across instances invites
         // one of them to be affected by another's bookkeeping.
+        //
+        // The end is measured from the panels rather than written as `bottom
+        // bottom`, and that stopped being cosmetic the moment the panels grew
+        // past one viewport. Hand-off *i* happens when panel *i+1*'s top reaches
+        // zero, so the last one lands after exactly `panelHeight × (n - 1)` of
+        // scroll — while `bottom bottom` spans `trackHeight - viewport`, which
+        // is a different number as soon as a panel is not exactly 100svh. The
+        // two agreed by coincidence before and would now be half a viewport
+        // apart by the final numeral.
         const spine = () => ({
           trigger: track,
           start: 'top top',
-          end: 'bottom bottom',
+          end: () =>
+            `+=${(panels[0]?.offsetHeight ?? window.innerHeight) * (panels.length - 1)}`,
           scrub: true as const,
+          invalidateOnRefresh: true,
         })
 
         if (progress) {

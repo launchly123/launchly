@@ -765,6 +765,108 @@ The page grain does not move, unlike the Orbit card's. A viewport-sized layer
 shifting three times a second is a viewport-sized repaint three times a second,
 and at 0.7% opacity the motion is not visible anyway.
 
+## §10 — cinematic pacing: three dials, and why two of them were the wrong one
+
+"Slow the animations down" came back three times. Distance was raised twice and
+neither time fixed it, which was the clue: the complaint was never about how long
+a section takes at a given scroll speed. It was about what happens when the wheel
+is flicked.
+
+### GSAP's `scrub` speeds *up* when you scroll harder
+
+Numeric scrub is a fixed-duration catch-up. ScrollTrigger keeps one tween and, on
+every scroll update, re-points it at the new progress and restarts it —
+`duration: scrubSmooth`, always, whatever the distance jumped. So a 5% nudge and a
+100% flick both resolve in the same two seconds, which means the harder the flick,
+the faster the storyboard plays. Backwards, and measured: at `scrub: 2` a hard
+wheel gesture put the whole pricing sequence away in about two seconds.
+
+`cinematicScrub` in `src/lib/pacing.ts` keeps the eased approach and adds a clamp
+on how far the playhead may move in one frame. The catch-up becomes proportional
+to the distance instead of constant, so `minPlay` is a real floor on the scene: 9
+seconds for the showcase, 11 for the two-card pricing sequence. Measured after an
+instant jump across the whole track, the playhead peaks at **0.0998/s** against a
+cap of 0.0909 and lands at **11.15 s**.
+
+It is a ceiling on speed, not a fixed running time. Read the section at a reading
+pace and nothing is limited, because a reading pace is already slower than the
+cap.
+
+### The floor is worthless on its own
+
+Rate-limit the timeline and nothing stops the visitor scrolling straight past the
+section while it is still playing — the animation finishes off screen, which is
+no better than skipping it. So the second dial works on the input rather than the
+output.
+
+Lenis exposes `virtualScroll`, called with the raw gesture before it is consumed
+and documented for exactly this. Scaling `deltaY` there scales the wheel itself:
+inside a cinema zone one notch buys 0.55 of the page it buys elsewhere. That is
+"more scroll distance" from the hand's point of view, and unlike a taller section
+it costs the document no height, keeps the scrollbar honest, and never applies to
+someone passing through on their way to the contact form. Measured: 1440px of
+wheel gives 1440px outside a zone and **792px** inside — 0.55 exactly.
+
+Ramped over a third of a second, not switched. A hard switch at the zone boundary
+is felt as the wheel hitting glue.
+
+Wheel and trackpad only. Keyboard scrolling arrives as a native scroll that Lenis
+merely syncs to, so a keyboard user is never made to press the arrow key twice as
+often. Touch never reaches the tap at all — `syncTouch` is off site-wide, and
+damping a finger drag would mean the page moving less than the finger did.
+
+### The sticky stack finally got a distance dial
+
+The "How it works" panels stack with native CSS `sticky`, so their hand-off speed
+is a pure function of panel height and no scrub reaches it. Two rounds ago this
+was written off as needing a restructure, because content centred in a 150svh box
+sits at 75svh — a quarter of a screen below where it belongs.
+
+`padding-bottom` fixes that for nothing. With `box-sizing: border-box` the 150svh
+includes it, so `desk:min-h-[150svh] desk:pb-[50svh]` leaves a content box of
+exactly 100svh and `items-center` puts the copy back on the same pixel. What the
+extra half viewport buys is scroll: the next panel needs 50% more travel to reach
+zero. Verified — copy centre **450px of 900**, unchanged.
+
+Two things had to move with it. The recede now starts at `top -50%`, so a step is
+genuinely still for half a viewport before it begins dimming; previously it began
+receding the instant it finished arriving. And the numeral spine's `end` is now
+measured as `panelHeight × (panels − 1)` rather than written as `bottom bottom` —
+those were the same number only while panels were exactly one viewport tall, and
+the drift would have reached half a viewport by the last numeral.
+
+### Hit-testing had to be re-pointed
+
+Under a speed limit `ScrollTrigger.progress` and the rendered playhead are
+deliberately different numbers. Anything keyed to what is on screen has to read
+the playhead: the pricing stage decides which card is clickable from the driver's
+`onRender`, not from scroll position, or it hands clicks to a card that has not
+arrived yet.
+
+### Where it landed
+
+| | before | now |
+|---|---|---|
+| Steps, per hand-off | 1.00 vp | **1.50 vp** |
+| Showcase | 4.50 vp | **5.00 vp** |
+| Pricing | 5.50 vp | **6.00 vp** |
+| Wheel cost inside a scene | 1.00× | **0.55×** |
+| Pricing floor on a flick | ~2 s | **11 s** |
+| Page height | 23.75 vp | **26.75 vp** |
+
+Mobile Lighthouse **98 / 100 / 100 / 100**, CLS **0**.
+
+### What was not done
+
+Touch keeps a plain 1:1 scrub on the pricing stage and gets no damping anywhere.
+A finger is not throwing the page somewhere it did not mean to go, so a catch-up
+reads as lag and a speed limit reads as the page being taken away.
+
+The page is now 26.75 viewports and every wheel notch inside a scene is worth
+just over half of one. Both dials are single numbers — `DAMPING` in
+`useScrollMotion.ts` and `minPlay` at each call site — and the damping is the one
+to reach for first if it starts to feel like wading rather than like weight.
+
 ## Open TODOs
 
 - `config.siteUrl` — swap for the real domain once connected. It also appears in

@@ -5,6 +5,7 @@ import { config, showcase, type Project } from '../content/content'
 import { useLang } from '../lib/i18n'
 import { priceLabel } from '../lib/links'
 import { DESKTOP_MOTION } from '../lib/device'
+import { cinematicScrub } from '../lib/pacing'
 import { prefersReducedMotion } from '../lib/smoothScroll'
 import { ButtonLink } from './Button'
 
@@ -71,41 +72,40 @@ export function Showcase({ project }: { project: Project }) {
         return -Math.min(stop * scale, Math.max(limit, 0))
       }
 
-      const tl = gsap.timeline({
-        defaults: { ease: 'none' },
-        scrollTrigger: {
-          trigger: root.current,
-          start: 'top top',
-          /*
-           * 450%, up from 250% via 360%.
-           *
-           * The whole timeline below is authored in normalised 0–1 progress, so
-           * this one number is the section's pacing dial — every leg of the
-           * client page's scroll and every callout gets proportionally more
-           * scrolling to happen across, with none of their relative timing
-           * touched. At 250% the homepage flew past faster than the callouts
-           * beside it could be read.
-           *
-           */
-          end: '+=450%',
-          pin: pin.current,
-          pinSpacing: true,
-          /*
-           * 2s of catch-up, up from 1. Distance alone does not answer "too fast
-           * when I scroll fast" — flick hard and a 1s scrub still races the
-           * frame to wherever the wheel landed. The longer catch-up gives the
-           * client page real inertia: it keeps gliding after the flick and
-           * arrives under its own weight instead of snapping.
-           *
-           * The cost is honest — stop scrolling and the image is still settling
-           * for up to two seconds. That is the trade being made deliberately.
-           */
-          scrub: 2,
-          invalidateOnRefresh: true,
-          onToggle: (self) => {
-            const el = frame.current
-            if (el) el.style.willChange = self.isActive ? 'transform' : ''
-          },
+      /*
+       * Paused and unattached: the playhead is driven by `cinematicScrub`, not
+       * by GSAP's own `scrub`. Same input — scroll position — but with a speed
+       * limit on top, so a flick can no longer put the sequence away in the two
+       * seconds a fixed-duration catch-up allowed it.
+       */
+      const tl = gsap.timeline({ paused: true, defaults: { ease: 'none' } })
+
+      /*
+       * 500%, up from 250% via 360% and 450%.
+       *
+       * The whole timeline below is authored in normalised 0–1 progress, so this
+       * one number is the section's distance dial — every leg of the client
+       * page's scroll and every callout gets proportionally more scrolling to
+       * happen across, with none of their relative timing touched.
+       *
+       * 9 seconds is the floor on the sequence: frame rising, four legs of the
+       * client's homepage, four callouts, and the hand-off to the CTA. It is a
+       * ceiling on speed rather than a fixed running time — read the callouts at
+       * a reading pace and nothing is limited at all, because a reading pace is
+       * already slower than this.
+       */
+      const driver = cinematicScrub(tl, {
+        trigger: root.current,
+        start: 'top top',
+        end: '+=500%',
+        pin: pin.current,
+        pinSpacing: true,
+        minPlay: 9,
+        smooth: 0.5,
+        invalidateOnRefresh: true,
+        onToggle: (self) => {
+          const el = frame.current
+          if (el) el.style.willChange = self.isActive ? 'transform' : ''
         },
       })
 
@@ -148,6 +148,10 @@ export function Showcase({ project }: { project: Project }) {
         )
 
       return () => {
+        // The driver's ticker callback is neither a tween nor a ScrollTrigger,
+        // so matchMedia's revert cannot reach it. Left behind it would keep
+        // writing to a timeline the context has already torn down.
+        driver.kill()
         gsap.set([frame.current, imageEl, veil.current, cta.current], { clearProps: 'all' })
       }
     })

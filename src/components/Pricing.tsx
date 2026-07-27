@@ -4,6 +4,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { config, type ComparisonRow } from '../content/content'
 import { useLang } from '../lib/i18n'
 import { messageOpener, priceLabel, smsUrl } from '../lib/links'
+import { cinematicScrub } from '../lib/pacing'
 import { getLenis, prefersReducedMotion, scrollToY } from '../lib/smoothScroll'
 import { ButtonLink } from './Button'
 import { RevealText } from './RevealText'
@@ -520,67 +521,50 @@ export function Pricing({ index }: { index: number }) {
       /** Which card currently owns the stage. -1 during a hand-off. */
       let live = -1
 
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: trackEl,
-          start: 'top top',
-          end: 'bottom bottom',
-          /*
-           * 2s of catch-up on a precise pointer, up from 1.
-           *
-           * Distance is what makes a slow scroll unhurried; this is what makes a
-           * FAST one unhurried. At `scrub: 1` a hard flick still threw the card
-           * most of the way across the stage — the storyboard was spread over
-           * more scrolling, but a wheel gesture could still eat it in one go. At
-           * 2 the card keeps travelling after the flick has stopped and settles
-           * into place under its own momentum.
-           *
-           * On touch it stays `true` — locked 1:1 to the finger. Momentum
-           * scrolling is not eased by Lenis here (`syncTouch` is off site-wide),
-           * so any catch-up reads as the card lagging behind the drag rather
-           * than as weight.
-           */
-          scrub: fine ? 2 : true,
-          invalidateOnRefresh: true,
-          onToggle: (self) => {
-            /*
-             * On the stage, not the deck. The idle float only needs an ancestor
-             * with the flag, but the vignette is a *sibling* of the deck — it has
-             * to frame the whole sticky viewport, so it cannot live inside the
-             * grid the cards share. Setting the flag one level up covers both.
-             */
-            if (self.isActive) stageEl.dataset.priceLive = 'true'
-            else delete stageEl.dataset.priceLive
+      /*
+       * Hit-testing follows the storyboard. Both cards sit in the same grid
+       * cell, so without this the one later in the DOM would swallow every
+       * click aimed at the one actually on screen.
+       *
+       * Fed the *rendered* progress, never the scroll position. Under the speed
+       * limit below the two are deliberately different numbers — scroll past the
+       * stage quickly and the storyboard is still a card behind. Keyed to scroll
+       * it would hand the clicks to a card that has not arrived yet.
+       *
+       * Only the transitions touch the DOM — the index is cached, so a frame in
+       * the middle of a hold costs two number comparisons.
+       */
+      const setLive = (p: number) => {
+        let next = -1
+        for (let i = 0; i < WINDOWS.length; i++) {
+          if (p >= WINDOWS[i].from && p < WINDOWS[i].to) next = i
+        }
+        if (next === live) return
 
-            for (const slot of cards) {
-              slot.style.willChange = self.isActive
-                ? 'transform, opacity, filter'
-                : ''
-            }
-          },
-          onUpdate: (self) => {
-            /*
-             * Hit-testing follows the storyboard. Both cards sit in the same grid
-             * cell, so without this the one later in the DOM would swallow every
-             * click aimed at the one actually on screen.
-             *
-             * Only the *transitions* touch the DOM — the index is cached, so a
-             * frame in the middle of a hold costs two number comparisons.
-             */
-            const p = self.progress
-            let next = -1
-            for (let i = 0; i < WINDOWS.length; i++) {
-              if (p >= WINDOWS[i].from && p < WINDOWS[i].to) next = i
-            }
-            if (next === live) return
+        live = next
+        cards.forEach((slot, i) => {
+          slot.style.pointerEvents = i === next ? '' : 'none'
+        })
+      }
 
-            live = next
-            cards.forEach((slot, i) => {
-              slot.style.pointerEvents = i === next ? '' : 'none'
-            })
-          },
-        },
-      })
+      const onToggle = (self: ScrollTrigger) => {
+        /*
+         * On the stage, not the deck. The idle float only needs an ancestor
+         * with the flag, but the vignette is a *sibling* of the deck — it has
+         * to frame the whole sticky viewport, so it cannot live inside the
+         * grid the cards share. Setting the flag one level up covers both.
+         */
+        if (self.isActive) stageEl.dataset.priceLive = 'true'
+        else delete stageEl.dataset.priceLive
+
+        for (const slot of cards) {
+          slot.style.willChange = self.isActive
+            ? 'transform, opacity, filter'
+            : ''
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true })
 
       /*
        * The timeline is as long as the storyboard says, not as long as its last
@@ -790,6 +774,50 @@ export function Pricing({ index }: { index: number }) {
       })
 
       /*
+       * ───────────────────────────────────────────────────────────────────────
+       * THE DRIVER — built last, once the storyboard it plays actually exists.
+       *
+       * On a precise pointer the playhead is speed-limited rather than scrubbed:
+       * eleven seconds is the floor on the full two-card sequence, which works
+       * out at a shade under five seconds per card on stage. GSAP's `scrub` could
+       * not express that — its catch-up is a fixed duration, so the further a
+       * flick jumps the faster the storyboard plays, and at `scrub: 2` a hard
+       * wheel gesture genuinely put both cards away in about two seconds.
+       *
+       * On touch it stays a plain 1:1 scrub. Momentum scrolling is not eased by
+       * Lenis here (`syncTouch` is off site-wide) and a finger is not throwing
+       * the page anywhere it did not mean to go, so a catch-up would read as the
+       * card lagging behind the drag rather than as weight — and a speed limit
+       * would read as the page being taken away.
+       * ───────────────────────────────────────────────────────────────────────
+       */
+      const driver = fine
+        ? cinematicScrub(tl, {
+            trigger: trackEl,
+            start: 'top top',
+            end: 'bottom bottom',
+            minPlay: 11,
+            smooth: 0.5,
+            invalidateOnRefresh: true,
+            onToggle,
+            onRender: setLive,
+          })
+        : null
+
+      const st =
+        driver?.scrollTrigger ??
+        ScrollTrigger.create({
+          animation: tl,
+          trigger: trackEl,
+          start: 'top top',
+          end: 'bottom bottom',
+          scrub: true,
+          invalidateOnRefresh: true,
+          onToggle,
+          onUpdate: (self) => setLive(self.progress),
+        })
+
+      /*
        * KEYBOARD.
        *
        * Both cards are always in the DOM and always focusable, so tabbing
@@ -811,9 +839,6 @@ export function Pricing({ index }: { index: number }) {
         const i = cards.indexOf(slot)
         if (i < 0 || i === live) return
 
-        const st = tl.scrollTrigger
-        if (!st) return
-
         scrollToY(st.start + (beats(i).holdCentre / TOTAL) * (st.end - st.start))
       }
 
@@ -821,6 +846,9 @@ export function Pricing({ index }: { index: number }) {
 
       return () => {
         deckEl.removeEventListener('focusin', onFocusIn)
+        // The driver's ticker callback is neither a tween nor a ScrollTrigger,
+        // so matchMedia's revert cannot reach it.
+        driver?.kill()
         delete stageEl.dataset.priceLive
 
         /*
@@ -923,23 +951,25 @@ export function Pricing({ index }: { index: number }) {
    * this section had before.
    */
   /*
-   * 650svh, up from 360 via 520.
+   * 700svh, up from 360 via 520 and 650.
    *
-   * The scrub maps this track onto the storyboard's 12.6 units, so the track's
-   * height IS the pacing dial — nothing about the timeline changes, each beat
+   * The driver maps this track onto the storyboard's 12.6 units, so the track's
+   * height IS the distance dial — nothing about the timeline changes, each beat
    * simply gets more scroll to happen across. Note the trigger runs `top top` to
-   * `bottom bottom`, so the scrubbed span is the track MINUS one viewport: 650svh
-   * of element gives 5.5 viewports of actual scrubbing, not 6.5.
+   * `bottom bottom`, so the driven span is the track MINUS one viewport: 700svh
+   * of element gives 6 viewports of actual travel, not 7.
    *
-   * That works out at ~44svh per storyboard unit — a card takes just over a full
-   * viewport of scrolling to arrive, then holds dead still for about 1.4 more.
+   * That works out at ~48svh per storyboard unit — a card takes about 1.15
+   * viewports of scrolling to arrive, then holds dead still for 1.5 more.
    *
-   * Distance was only half the answer. It governs how long the section takes at
-   * a given scroll speed; it does nothing about how fast the section is allowed
-   * to go when someone flicks the wheel. That is `scrub`, raised to 2 on the
-   * ScrollTrigger above. Both had to move.
+   * Distance is only one of the three dials now, and the least of them. It
+   * governs how long the section takes at a given scroll speed. How fast the
+   * section is *allowed* to go is the `minPlay` floor on the driver; how much
+   * wheel it costs to get through is the cinema-zone damping in
+   * `useScrollMotion`. Distance alone was raised twice before and neither time
+   * fixed a flick, because a flick simply covers more distance faster.
    */
-  const trackClass = animate ? 'relative mt-16 md:h-[650svh]' : 'mt-16'
+  const trackClass = animate ? 'relative mt-16 md:h-[700svh]' : 'mt-16'
   /* `relative` so the vignette's `inset-0` resolves to the sticky viewport box
      rather than to the page. */
   const stageClass = animate
