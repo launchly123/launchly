@@ -55,8 +55,33 @@ export const config = {
    */
   formEndpoint: null as string | null,
 
-  /** Production URL — used for canonical + OG tags. */
-  siteUrl: 'https://launchly.vercel.app', // TODO: swap for the real domain when it's connected
+  /**
+   * Production URL. A record, not a source — nothing reads it.
+   *
+   * The tags that actually ship are hard-coded in `index.html`, because they
+   * have to be in the HTML a crawler receives and this is a client-rendered SPA;
+   * a canonical tag written by React arrives too late to be worth anything.
+   * Rollup drops this property entirely — verified, it does not appear in the
+   * bundle. So changing this line alone changes nothing on the live site, which
+   * is the trap it is here to warn about.
+   *
+   * This was `launchly.vercel.app`, which is not ours: that address belongs to
+   * an unrelated Vercel account and currently serves a "Silsila — Coming Soon"
+   * page. Vercel refuses it outright (`already in use, 403`), which is why the
+   * project was auto-assigned `launchly-nu` in the first place.
+   *
+   * Pointing the canonical tag at it was worse than cosmetic. `rel=canonical`
+   * tells a search engine which URL is the real one, so index.html was actively
+   * telling Google that the authoritative copy of this page lived on a
+   * stranger's domain — and `og:image` pointed there too, at a file that 404s,
+   * so shared links had no thumbnail to load.
+   *
+   * `launchly-nu.vercel.app` still resolves and is kept as a working alias, so
+   * anything already shared stays live. Update all of these together if a real
+   * domain is bought: this line, the canonical/OG/Twitter tags in index.html,
+   * public/robots.txt and public/sitemap.xml.
+   */
+  siteUrl: 'https://launchly-websites.vercel.app',
 
   foundedYear: 2025,
 }
