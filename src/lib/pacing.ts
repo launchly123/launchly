@@ -1,5 +1,6 @@
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { getLenis } from './smoothScroll'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -24,11 +25,30 @@ gsap.registerPlugin(ScrollTrigger)
    1 — SCROLL DAMPING
    ─────────────────────────────────────────────────────────────────────────── */
 
-/** Active zones, by id. The strongest (lowest) damping in force wins. */
-const zones = new Map<string, number>()
+type Zone = {
+  /** Multiplier on raw wheel deltas. Governs how heavy the wheel feels. */
+  damp: number
+  /**
+   * Cap on how far the scroll target may run ahead of where the page actually
+   * is, as a fraction of the viewport. Governs how FAST the page may travel.
+   *
+   * Lenis eases the page toward a target; the gap between the two is what sets
+   * the speed. Capping the gap therefore caps the velocity, and unlike `damp` —
+   * which scales every gesture equally, gentle ones included — this only binds
+   * at the top end. Normal reading scroll never builds a gap this large and
+   * never feels it.
+   *
+   * `null` leaves the zone uncapped.
+   */
+  maxLead: number | null
+}
+
+/** Active zones, by id. The strongest claim of each kind wins. */
+const zones = new Map<string, Zone>()
 
 let dampTarget = 1
 let dampCurrent = 1
+let leadLimit: number | null = null
 
 /**
  * Time constant of the ramp between damping levels.
@@ -41,11 +61,19 @@ let dampCurrent = 1
  */
 const RAMP = 0.33
 
-/** Adds or (with `null`) removes a zone's claim on the scroll multiplier. */
-export function setZoneDamping(id: string, value: number | null) {
-  if (value == null) zones.delete(id)
-  else zones.set(id, value)
-  dampTarget = zones.size ? Math.min(...zones.values()) : 1
+/** Adds or (with `null`) removes a zone's claim on the scroll. */
+export function setZoneDamping(id: string, zone: Zone | null) {
+  if (zone == null) zones.delete(id)
+  else zones.set(id, zone)
+
+  let damp = 1
+  let lead: number | null = null
+  for (const z of zones.values()) {
+    if (z.damp < damp) damp = z.damp
+    if (z.maxLead != null && (lead == null || z.maxLead < lead)) lead = z.maxLead
+  }
+  dampTarget = damp
+  leadLimit = lead
 }
 
 /** Advances the eased multiplier. Driven from the site's single RAF loop. */
@@ -61,6 +89,84 @@ export const scrollDamping = () => dampCurrent
 export function resetDamping() {
   zones.clear()
   dampTarget = dampCurrent = 1
+  leadLimit = null
+}
+
+/**
+ * Rewrites a gesture in place, before Lenis consumes it. Two things happen:
+ * the delta is damped, and the resulting scroll target is capped so it cannot
+ * run further ahead of the page than the active zone allows.
+ *
+ * The cap is the part that makes a scene unskippable, and it took a wrong turn
+ * to find. A speed limit on the *timeline* — which is what `cinematicScrub`
+ * does — guarantees the storyboard plays slowly. It guarantees nothing about
+ * whether anyone is still looking at it: flick past a sticky stage and it
+ * un-sticks immediately while the playhead is a quarter of the way through, and
+ * the rest of the sequence plays to an empty screen. That is exactly how the
+ * second pricing card came to be skipped.
+ *
+ * Visibility is governed by scroll, so the floor has to be governed by scroll
+ * too. With the page unable to travel faster than this, the stage cannot leave
+ * before the storyboard has finished on it, and both cards are necessarily seen.
+ *
+ * Deliberately only the wheel. `lenis.scrollTo` is `programmatic` and never
+ * reaches here, so anchor links, the language-switch restore and the pricing
+ * stage's own focus handler still jump instantly — a keyboard user is never
+ * held anywhere. Native scrolling (arrow keys, space, dragging the scrollbar)
+ * does not pass through Lenis's gesture pipeline either. Those are all explicit
+ * "take me there" gestures, and a section that refused them would be a trap
+ * rather than a pace.
+ */
+export function governScroll(data: { deltaX: number; deltaY: number }) {
+  if (dampCurrent < 1) {
+    data.deltaX *= dampCurrent
+    data.deltaY *= dampCurrent
+  }
+
+  if (leadLimit == null) return
+  const lenis = getLenis()
+  if (!lenis) return
+
+  /*
+   * Lenis adds the delta to `targetScroll`, so capping the delta caps the lead:
+   * allow only the difference between the cap and the lead already outstanding.
+   *
+   * Floored at zero in each direction rather than clamped to the raw allowance.
+   * Enter a zone already over the cap — a flick that began outside it — and the
+   * allowance is negative; used as-is it would turn a downward gesture into an
+   * upward one. The gesture may be reduced to nothing, never reversed.
+   */
+  const max = leadLimit * window.innerHeight
+  const lead = lenis.targetScroll - lenis.animatedScroll
+  const down = Math.max(0, max - lead)
+  const up = Math.min(0, -max - lead)
+  data.deltaY = Math.min(down, Math.max(up, data.deltaY))
+}
+
+/**
+ * Sheds momentum that was built before a capped zone took hold.
+ *
+ * Clamping incoming deltas stops the lead *growing*, which is enough for a
+ * gesture that starts inside the scene and nowhere near enough for one that
+ * starts above it. Measured: a hard flick begun half a viewport before the
+ * pricing track arrived carrying ~5100 px/s and coasted through the first 1.2
+ * viewports of it before the delta clamp had anything to clamp.
+ *
+ * So on entering the zone the outstanding lead is cut to the cap. The page keeps
+ * moving — it just decelerates to the scene's speed limit instead of sailing
+ * through on momentum it earned somewhere else.
+ */
+function shedLead(maxLead: number) {
+  const lenis = getLenis()
+  if (!lenis) return
+
+  const max = maxLead * window.innerHeight
+  const lead = lenis.targetScroll - lenis.animatedScroll
+  if (Math.abs(lead) <= max) return
+
+  lenis.scrollTo(lenis.animatedScroll + Math.sign(lead) * max, {
+    programmatic: true,
+  })
 }
 
 /**
@@ -76,16 +182,22 @@ export function resetDamping() {
  * would mean the page moving less than the finger did, which is the one thing
  * touch scrolling is never allowed to do.
  */
-export function registerCinemaZone(
-  id: string,
-  trigger: Element,
-  multiplier: number,
-) {
+export function registerCinemaZone(id: string, trigger: Element, zone: Zone) {
   return ScrollTrigger.create({
     trigger,
-    start: 'top center',
-    end: 'bottom center',
-    onToggle: (self) => setZoneDamping(id, self.isActive ? multiplier : null),
+    /*
+     * `top top` → `bottom bottom` for a zone that caps velocity, not `top
+     * center`. A scene that must not be skippable has to be governed from the
+     * moment its own scroll span begins, or the first stretch of it — the one
+     * that decides whether the stage is still on screen later — is ungoverned.
+     * A damp-only zone can afford to wait for the scene to own the screen.
+     */
+    start: zone.maxLead == null ? 'top center' : 'top top',
+    end: zone.maxLead == null ? 'bottom center' : 'bottom bottom',
+    onToggle: (self) => {
+      setZoneDamping(id, self.isActive ? zone : null)
+      if (self.isActive && zone.maxLead != null) shedLead(zone.maxLead)
+    },
   })
 }
 
@@ -215,13 +327,27 @@ export function cinematicScrub(tl: gsap.core.Timeline, o: ScrubOptions) {
       target = self.progress
     },
     onToggle: o.onToggle,
-    // Past either edge the trigger stops updating, so the target has to be
-    // parked by hand or the playhead settles wherever the last frame left it.
+    /*
+     * Past either edge the trigger stops updating, so the target has to be
+     * parked by hand or the playhead settles wherever the last frame left it.
+     *
+     * Snapped, not eased. Under the velocity cap this is a no-op — the
+     * storyboard has already finished by the time its scene leaves the screen.
+     * It only bites when something bypasses the cap: a scrollbar drag, `End`, a
+     * nav anchor. Easing there would leave the timeline quietly playing to an
+     * empty screen for several seconds and arriving at a state that no longer
+     * matches the scroll position, which is worse than simply being where the
+     * visitor asked to be.
+     */
     onLeave: () => {
-      target = 1
+      target = current = 1
+      tl.progress(1)
+      o.onRender?.(1)
     },
     onLeaveBack: () => {
-      target = 0
+      target = current = 0
+      tl.progress(0)
+      o.onRender?.(0)
     },
   })
 

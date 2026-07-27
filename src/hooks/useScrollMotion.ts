@@ -5,9 +5,9 @@ import Lenis from 'lenis'
 import { DESKTOP_MOTION } from '../lib/device'
 import {
   advanceDamping,
+  governScroll,
   registerCinemaZone,
   resetDamping,
-  scrollDamping,
   setZoneDamping,
 } from '../lib/pacing'
 import { getLenis, prefersReducedMotion, setLenis } from '../lib/smoothScroll'
@@ -74,15 +74,16 @@ export function useSmoothScroll() {
       syncTouch: false,
 
       /*
-       * The damping tap.
+       * The governor tap.
        *
-       * Lenis calls this with the raw gesture before it consumes it, so scaling
-       * the delta here is scaling the wheel itself: inside a cinematic scene one
-       * notch of wheel buys less page than it does anywhere else. That is what
-       * "more scroll distance" means from the hand's point of view, and unlike a
-       * taller section it costs the document no extra height, leaves the
-       * scrollbar honest, and never applies to a visitor who is simply passing
-       * through on their way to the contact form.
+       * Lenis calls this with the raw gesture before it consumes it, so
+       * rewriting the delta here is rewriting the wheel itself: inside a
+       * cinematic scene one notch buys less page than it does anywhere else,
+       * and the page is not allowed to travel faster than the scene can play.
+       * That is what "more scroll distance" means from the hand's point of view,
+       * and unlike a taller section it costs the document no extra height,
+       * leaves the scrollbar honest, and never applies to a visitor who is
+       * simply passing through on their way to the contact form.
        *
        * Wheel and trackpad only. Keyboard scrolling arrives as a native scroll
        * that Lenis merely syncs to, so it is untouched — a keyboard user is
@@ -90,11 +91,7 @@ export function useSmoothScroll() {
        * here either: `syncTouch` is off, so a phone bypasses this path entirely.
        */
       virtualScroll: (data) => {
-        const damp = scrollDamping()
-        if (damp < 1) {
-          data.deltaX *= damp
-          data.deltaY *= damp
-        }
+        governScroll(data)
         return true
       },
     })
@@ -514,28 +511,41 @@ export function useScrollReveals() {
      * component so the multipliers sit next to each other and can be read as a
      * set: they are relative to one another as much as to 1.
      *
-     * 0.55 across the board. Two full turns of the wheel to buy what one used
-     * to, which is enough to stop a flick clearing a scene and not so much that
-     * the page feels stuck. This is the single number to raise if the site
-     * starts to feel like wading rather than like weight.
+     * `damp` is 0.55 across the board. Two full turns of the wheel to buy what
+     * one used to, which is enough to make a scene feel like it has mass and not
+     * so much that the page feels stuck.
+     *
+     * `maxLead` is the one that makes a scene unskippable, and it is only on the
+     * two scenes that CAN be skipped — the ones whose content is held by a
+     * sticky stage that releases the moment the scroll passes it. 0.2 of a
+     * viewport of lead works out at roughly 660 px/s, so the pricing track's 6.6
+     * viewports take about nine seconds at the very fastest and every card gets
+     * its full moment on screen.
+     *
+     * The steps stack is deliberately left uncapped. Its panels are ordinary
+     * document flow — nothing there can be scrolled past before it has been
+     * drawn — so a velocity cap would be drag with nothing to guarantee.
      *
      * Each zone is gated on the breakpoint where its scene actually exists.
      * Below 1024px the steps are a plain list and the showcase is a still frame;
-     * below 768px the pricing stage is flow layout. Damping the wheel over a
+     * below 768px the pricing stage is flow layout. Governing the wheel over a
      * static list would be drag with nothing to show for it.
      * ─────────────────────────────────────────────────────────────────────────
      */
     const DAMPING = 0.55
+    const MAX_LEAD = 0.2
 
-    const cinema = (query: string, scenes: Array<[string, string]>) => {
+    type Scene = [id: string, selector: string, maxLead: number | null]
+
+    const cinema = (query: string, scenes: Scene[]) => {
       mm.add(query, () => {
-        for (const [id, selector] of scenes) {
+        for (const [id, selector, maxLead] of scenes) {
           const el = document.querySelector(selector)
-          if (el) registerCinemaZone(id, el, DAMPING)
+          if (el) registerCinemaZone(id, el, { damp: DAMPING, maxLead })
         }
 
-        // The trigger is reverted with the context; the multiplier it last set
-        // is not, so a zone left active across a breakpoint change would damp
+        // The trigger is reverted with the context; the claim it last registered
+        // is not, so a zone left active across a breakpoint change would govern
         // the whole site for the rest of the session.
         return () => {
           for (const [id] of scenes) setZoneDamping(id, null)
@@ -544,10 +554,12 @@ export function useScrollReveals() {
     }
 
     cinema(DESKTOP_MOTION, [
-      ['cinema-steps', '[data-step-track]'],
-      ['cinema-showcase', '#work'],
+      ['cinema-steps', '[data-step-track]', null],
+      ['cinema-showcase', '#work', MAX_LEAD],
     ])
-    cinema('(min-width: 768px)', [['cinema-pricing', '[data-price-track]']])
+    cinema('(min-width: 768px)', [
+      ['cinema-pricing', '[data-price-track]', MAX_LEAD],
+    ])
 
     mm.add(DESKTOP_MOTION, () => {
       /*

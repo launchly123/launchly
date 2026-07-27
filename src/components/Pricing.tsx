@@ -29,13 +29,21 @@ const TIERS: TierId[] = ['liftoff', 'orbit']
    storyboard says it is — change TRACK and every beat rescales together
    instead of drifting out of sync with the sticky travel.
 
-   At TRACK = 360svh with two tiers, one unit works out at roughly 21svh.
+   At TRACK = 760svh with two tiers, one unit works out at roughly 48svh.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /** Rise, scale, and rotate into place. */
 const ENTER = 2.4
-/** Dead still. The only beat that exists for the reader rather than the eye. */
-const HOLD = 3.2
+/**
+ * Dead still. The only beat that exists for the reader rather than the eye.
+ *
+ * 3.8, up from 3.2. With the scroll velocity capped inside the stage (see
+ * `MAX_LEAD` in useScrollMotion), a beat's share of the track converts directly
+ * into a guaranteed number of seconds on screen: 3.8 of 13.8 units across 6.6
+ * viewports is about 2.5 seconds of complete stillness per card even for someone
+ * scrolling as fast as the section will let them.
+ */
+const HOLD = 3.8
 /** Recede and fade. */
 const EXIT = 1.8
 /**
@@ -777,12 +785,26 @@ export function Pricing({ index }: { index: number }) {
        * ───────────────────────────────────────────────────────────────────────
        * THE DRIVER — built last, once the storyboard it plays actually exists.
        *
-       * On a precise pointer the playhead is speed-limited rather than scrubbed:
-       * eleven seconds is the floor on the full two-card sequence, which works
-       * out at a shade under five seconds per card on stage. GSAP's `scrub` could
-       * not express that — its catch-up is a fixed duration, so the further a
-       * flick jumps the faster the storyboard plays, and at `scrub: 2` a hard
-       * wheel gesture genuinely put both cards away in about two seconds.
+       * On a precise pointer the playhead is speed-limited rather than scrubbed.
+       * GSAP's `scrub` cannot express that: its catch-up is a fixed duration, so
+       * the further a flick jumps the faster the storyboard plays, and at
+       * `scrub: 2` a hard wheel gesture genuinely put both cards away in about
+       * two seconds.
+       *
+       * `minPlay` is 4, down from 11, and the reduction is the fix for Orbit
+       * being skipped rather than a retreat from it. A floor on the TIMELINE
+       * guarantees the storyboard plays slowly; it guarantees nothing about
+       * anyone still watching. At 11 seconds against a track that could be
+       * crossed in three, the stage un-stuck with the playhead a quarter of the
+       * way through and Orbit's entire moment played to an empty screen.
+       *
+       * The floor now lives on the scroll instead — `MAX_LEAD` in
+       * useScrollMotion caps how fast the page may travel through this track, so
+       * the stage cannot leave before the storyboard has finished on it. What is
+       * left here is inertia: enough catch-up that the cards glide rather than
+       * track the wheel exactly, and comfortably less than the ~9 seconds the
+       * track now takes at its fastest, so the playhead can never fall behind
+       * the stage it is playing on.
        *
        * On touch it stays a plain 1:1 scrub. Momentum scrolling is not eased by
        * Lenis here (`syncTouch` is off site-wide) and a finger is not throwing
@@ -796,7 +818,7 @@ export function Pricing({ index }: { index: number }) {
             trigger: trackEl,
             start: 'top top',
             end: 'bottom bottom',
-            minPlay: 11,
+            minPlay: 4,
             smooth: 0.5,
             invalidateOnRefresh: true,
             onToggle,
@@ -951,25 +973,27 @@ export function Pricing({ index }: { index: number }) {
    * this section had before.
    */
   /*
-   * 700svh, up from 360 via 520 and 650.
+   * 760svh, up from 360 via 520, 650 and 700.
    *
-   * The driver maps this track onto the storyboard's 12.6 units, so the track's
+   * The driver maps this track onto the storyboard's 13.8 units, so the track's
    * height IS the distance dial — nothing about the timeline changes, each beat
    * simply gets more scroll to happen across. Note the trigger runs `top top` to
-   * `bottom bottom`, so the driven span is the track MINUS one viewport: 700svh
-   * of element gives 6 viewports of actual travel, not 7.
+   * `bottom bottom`, so the driven span is the track MINUS one viewport: 760svh
+   * of element gives 6.6 viewports of actual travel, not 7.6.
    *
    * That works out at ~48svh per storyboard unit — a card takes about 1.15
-   * viewports of scrolling to arrive, then holds dead still for 1.5 more.
+   * viewports of scrolling to arrive, then holds dead still for 1.8 more.
    *
-   * Distance is only one of the three dials now, and the least of them. It
-   * governs how long the section takes at a given scroll speed. How fast the
-   * section is *allowed* to go is the `minPlay` floor on the driver; how much
-   * wheel it costs to get through is the cinema-zone damping in
-   * `useScrollMotion`. Distance alone was raised twice before and neither time
-   * fixed a flick, because a flick simply covers more distance faster.
+   * Distance is the least of the three dials. It governs how long the section
+   * takes at a given scroll speed and nothing else; raised on its own it was
+   * tried three times and never fixed a flick, because a flick simply covers
+   * more distance faster. What makes the section unskippable is the velocity cap
+   * on the scroll (`MAX_LEAD`), and what makes it feel weighted is the wheel
+   * damping — both in `useScrollMotion`. Distance is what converts that capped
+   * velocity into seconds: at ~660 px/s these 6.6 viewports cannot be crossed in
+   * under about nine.
    */
-  const trackClass = animate ? 'relative mt-16 md:h-[700svh]' : 'mt-16'
+  const trackClass = animate ? 'relative mt-16 md:h-[760svh]' : 'mt-16'
   /* `relative` so the vignette's `inset-0` resolves to the sticky viewport box
      rather than to the page. */
   const stageClass = animate

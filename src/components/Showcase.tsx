@@ -88,11 +88,15 @@ export function Showcase({ project }: { project: Project }) {
        * page's scroll and every callout gets proportionally more scrolling to
        * happen across, with none of their relative timing touched.
        *
-       * 9 seconds is the floor on the sequence: frame rising, four legs of the
-       * client's homepage, four callouts, and the hand-off to the CTA. It is a
-       * ceiling on speed rather than a fixed running time — read the callouts at
-       * a reading pace and nothing is limited at all, because a reading pace is
-       * already slower than this.
+       * `minPlay` is 4, down from 9, for the same reason the pricing stage's
+       * came down from 11: a floor on the timeline is not a floor on what gets
+       * seen. This block pins, so the moment the scroll passes `end` the frame
+       * is gone — and a playhead still nine seconds from finishing would spend
+       * most of them animating to nobody. The floor that matters is the velocity
+       * cap on the scroll (`MAX_LEAD` in useScrollMotion), which stops the page
+       * crossing this span in under about seven seconds. What is left here is
+       * inertia, chosen to be comfortably shorter than that so the sequence can
+       * never fall behind its own pin.
        */
       const driver = cinematicScrub(tl, {
         trigger: root.current,
@@ -100,7 +104,7 @@ export function Showcase({ project }: { project: Project }) {
         end: '+=500%',
         pin: pin.current,
         pinSpacing: true,
-        minPlay: 9,
+        minPlay: 4,
         smooth: 0.5,
         invalidateOnRefresh: true,
         onToggle: (self) => {
@@ -115,7 +119,24 @@ export function Showcase({ project }: { project: Project }) {
         { scale: 0.85, rotateX: 8, y: 40 },
         { scale: 1, rotateX: 0, y: 0, ease: 'power2.out', duration: 0.14 },
         0,
-      ).to(veil.current, { opacity: 0, duration: 0.14 }, 0)
+      )
+        /*
+         * `fromTo`, not `to`, and the difference was a black rectangle on every
+         * phone.
+         *
+         * The veil is what the frame brightens out of, so it has to start
+         * opaque — but a plain `to` reads its start value from the stylesheet,
+         * which meant the markup had to ship it opaque, which meant it stayed
+         * opaque anywhere this timeline does not exist. That is every screen
+         * under 1024px, every touch device, and every visitor with reduced
+         * motion: the one section that exists to prove the work can be seen,
+         * covered by a solid `--bg` panel. Measured at 320/375/390/414/430/768,
+         * the veil read opacity 1 at all six.
+         *
+         * Owning both ends here means the veil cannot be stranded by the absence
+         * of the thing that was supposed to clear it.
+         */
+        .fromTo(veil.current, { opacity: 1 }, { opacity: 0, duration: 0.14 }, 0)
 
       // 2 — the client's homepage scrolls past, one leg per stop.
       let at = 0.14
@@ -191,18 +212,40 @@ export function Showcase({ project }: { project: Project }) {
               <p className="eyebrow mt-3">{t.work.frameHint}</p>
             </div>
 
-            {/* Frame + callouts */}
-            <div className="relative" style={{ perspective: '1400px' }}>
+            {/*
+              Frame + callouts.
+
+              `min-w-0` is load-bearing, and its absence is why this section was
+              broken on phones. This div is a grid item, and a grid item's
+              default `min-width: auto` refuses to shrink below its own
+              min-content width. The browser chrome's URL — a single unbreakable
+              `restaurantedemiguel.vercel.app` — set that floor at 289px, so at
+              320px the frame rendered 291px wide inside a 224px column and hung
+              19px off the right of the screen, silently guillotined by the page's
+              `overflow-x: hidden` rather than reported as overflow.
+
+              With the floor removed the frame tracks its column at every width
+              and the URL ellipsises, which is what the `min-w-0 truncate` on the
+              span below is for — that too was inert while this one was missing.
+            */}
+            <div className="relative min-w-0" style={{ perspective: '1400px' }}>
               <div ref={frame} className="origin-center">
                 <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
                   {/* browser chrome */}
                   <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-                    <span className="flex gap-1.5" aria-hidden="true">
+                    <span className="flex shrink-0 gap-1.5" aria-hidden="true">
                       <span className="size-2.5 rounded-full bg-border" />
                       <span className="size-2.5 rounded-full bg-border" />
                       <span className="size-2.5 rounded-full bg-border" />
                     </span>
-                    <span className="ml-2 truncate font-mono text-[0.6875rem] text-muted">
+                    {/*
+                      `min-w-0` is what makes `truncate` do anything here. A flex
+                      item's default `min-width: auto` refuses to shrink below its
+                      content, so at 320px the URL simply ran past the chrome bar
+                      and was cut off square by the card's `overflow-hidden` —
+                      clipped rather than ellipsised.
+                    */}
+                    <span className="ml-2 min-w-0 truncate font-mono text-[0.6875rem] text-muted">
                       {project.url?.replace(/^https?:\/\//, '')}
                     </span>
                   </div>
@@ -247,11 +290,17 @@ export function Showcase({ project }: { project: Project }) {
                       />
                     </picture>
 
-                    {/* Starts dark, brightens as the frame settles. */}
+                    {/*
+                      Transparent by default; the pinned timeline is what makes
+                      it opaque, on the one frame of one breakpoint where the
+                      frame brightens out of the dark. Shipping it opaque and
+                      relying on a tween to clear it left it covering the client
+                      site on every phone — see the `fromTo` above.
+                    */}
                     <div
                       ref={veil}
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 bg-bg"
+                      className="pointer-events-none absolute inset-0 bg-bg opacity-0"
                     />
                   </div>
                 </div>

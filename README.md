@@ -867,6 +867,89 @@ just over half of one. Both dials are single numbers — `DAMPING` in
 `useScrollMotion.ts` and `minPlay` at each call site — and the damping is the one
 to reach for first if it starts to feel like wading rather than like weight.
 
+## §11 — two bugs the previous pass created or hid
+
+### Orbit could be skipped, and the speed limit is what did it
+
+§10 put a floor on how fast the *timeline* may play. That guarantees the
+storyboard runs slowly. It guarantees nothing about anyone watching it: the
+stage is sticky, so it releases the instant the scroll passes the track, and an
+11-second floor against a track a hard flick could cross in three meant the
+playhead was ~25% through when the stage left the screen. Everything after —
+Liftoff's hold, the entire Orbit moment — played to an empty viewport. The
+README already called this out as the honest cost of the design; it turned out
+to be the reported bug.
+
+Visibility is governed by scroll, so the floor has to be too. The wheel governor
+in `pacing.ts` now caps how far Lenis's scroll *target* may run ahead of where
+the page actually is (`maxLead`, 0.2 of a viewport). Lenis eases toward its
+target and the gap between the two is what sets the speed, so capping the gap
+caps the velocity — at roughly 660 px/s. The pricing track's 6.6 viewports
+therefore cannot be crossed in under about nine seconds, the stage cannot leave
+before the storyboard has finished on it, and both cards are necessarily seen.
+
+Unlike the 0.55 multiplier, which scales every gesture, a lead cap only binds at
+the top end. Reading scroll never builds a gap that large and never feels it.
+
+Two follow-on changes were needed:
+
+- **`minPlay` came down** — 11 → 4 on pricing, 9 → 4 on the showcase. A timeline
+  floor longer than the scene's own lifetime is the bug, not the fix. What is
+  left is inertia, chosen to be comfortably shorter than the capped traversal so
+  the playhead can never fall behind the stage it plays on.
+- **Momentum built outside the zone had to be shed.** Clamping incoming deltas
+  stops the lead growing and does nothing about a flick that started above the
+  section: measured, one arrived at ~5100 px/s and coasted through the first 1.2
+  viewports. Entering a capped zone now cuts the outstanding lead to the cap.
+
+`HOLD` went 3.2 → 3.8 units and the track 700 → 760svh, which under a capped
+velocity converts directly into seconds: ~2.5s of complete stillness per card
+even for someone scrolling as fast as the section allows.
+
+Verified in `orbit.js` under a sustained 600px-per-frame wheel barrage — about
+six times harder than a real trackpad fling. Track crossed in **8.8s**, Liftoff
+fully on stage 1.2s → 4.9s, Orbit 6.4s → 8.6s, order correct.
+
+`lenis.scrollTo` is programmatic and never passes through the governor, so nav
+anchors, the language-switch restore and the pricing stage's own focus handler
+still jump instantly. Native scrolling — arrow keys, space, dragging the
+scrollbar — does not go through Lenis's gesture pipeline either. Those are
+explicit "take me there" gestures and a section that refused them would be a
+trap rather than a pace.
+
+### The showcase was a black rectangle on every phone
+
+Two independent faults, both invisible to the existing probes.
+
+**The veil.** The frame brightens out of a dark panel, and that panel was
+cleared by a `to` tween — which reads its start value from the stylesheet, so
+the markup had to ship it opaque. The tween lives in the pinned timeline, which
+only exists at 1024px with a fine pointer. Everywhere else the veil simply
+stayed at opacity 1: a solid `--bg` sheet over the one section whose entire job
+is to prove the work exists. Every phone, every tablet, and every desktop
+visitor with reduced motion. Measured at 1.00 across 320/375/390/414/430/768.
+
+Now a `fromTo`, so the timeline owns both ends of the fade and the veil ships
+transparent. It cannot be stranded by the absence of the thing meant to clear it.
+
+**The frame was wider than the phone.** It is a grid item, and a grid item's
+default `min-width: auto` refuses to shrink below its min-content width. The
+browser chrome's URL — one unbreakable `restaurantedemiguel.vercel.app` — set
+that floor at 289px, so at 320px the frame rendered 291px wide inside a 224px
+column and hung 19px off the screen.
+
+It never showed up as overflow because the page sets `overflow-x: hidden`, so
+`scrollWidth` stayed clean and the frame was just quietly guillotined. That is
+the trap: `docOverflowX === 0` was being read as "nothing overflows" when it
+actually means "nothing overflows *visibly at the document level*". `mobile-fit.js`
+now measures every element's right edge against the viewport instead.
+
+`min-w-0` on the column fixes it, and only then does the `min-w-0 truncate` on
+the URL span do anything — it had been inert, clipped square by the card's
+`overflow-hidden` rather than ellipsised.
+
+Mobile Lighthouse **97 / 100 / 100 / 100**, CLS **0**.
+
 ## Open TODOs
 
 - `config.siteUrl` — swap for the real domain once connected. It also appears in
